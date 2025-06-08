@@ -313,14 +313,7 @@ cat selected_translations.json | esp_extractor -i "MyMod.esp" --apply-partial-st
    - 确保FormID匹配
 
 ## 🎮 支持的游戏
-
-- The Elder Scrolls V: Skyrim
 - The Elder Scrolls V: Skyrim Special Edition
-- Fallout 4
-- Fallout: New Vegas
-- Fallout 3
-- The Elder Scrolls IV: Oblivion
-- 其他使用Creation Engine/Gamebryo引擎的游戏
 
 ## 📄 文件格式支持
 
