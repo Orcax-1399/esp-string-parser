@@ -1,3 +1,4 @@
+#[cfg(feature = "cli")]
 use clap::Parser;
 use std::path::PathBuf;
 use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS};
@@ -6,10 +7,11 @@ use esp_extractor::group::{Group, GroupChild};
 #[cfg(debug_assertions)]
 use esp_extractor::EspDebugger;
 
+#[cfg(feature = "cli")]
 #[derive(Parser)]
 #[command(name = "esp_extractor")]
 #[command(about = "从ESP/ESM/ESL文件中提取可翻译字符串")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 struct Cli {
     /// 输入ESP/ESM/ESL文件路径
     #[arg(short, long)]
@@ -35,19 +37,15 @@ struct Cli {
     #[arg(long)]
     quiet: bool,
     
-    /// 应用翻译模式：从翻译JSON文件应用翻译到ESP文件
+    /// 应用翻译：从JSON文件应用翻译到ESP文件
     #[arg(long)]
-    apply_translations: Option<PathBuf>,
+    apply_file: Option<PathBuf>,
     
-    /// 应用部分翻译：从JSON字符串应用指定的翻译对象
+    /// 应用翻译：从JSON字符串应用指定的翻译对象
     #[arg(long)]
-    apply_partial: Option<String>,
+    apply_jsonstr: Option<String>,
     
-    /// 应用部分翻译：从JSON文件读取翻译对象（避免命令行长度限制）
-    #[arg(long)]
-    apply_partial_file: Option<PathBuf>,
-    
-    /// 应用部分翻译：从标准输入读取JSON翻译对象
+    /// 应用翻译：从标准输入读取JSON翻译对象
     #[arg(long)]
     apply_partial_stdin: bool,
     
@@ -60,6 +58,7 @@ struct Cli {
     compare_files: Option<PathBuf>,
 }
 
+#[cfg(feature = "cli")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     
@@ -76,19 +75,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     if cli.apply_partial_stdin {
-        return handle_partial_translation_stdin(&cli);
+        return handle_translation_stdin(&cli);
     }
     
-    if let Some(partial_file) = &cli.apply_partial_file {
-        return handle_partial_translation_file(&cli, partial_file);
+    if let Some(translation_file) = &cli.apply_file {
+        return handle_translation_file(&cli, translation_file);
     }
     
-    if let Some(partial_json) = &cli.apply_partial {
-        return handle_partial_translation_string(&cli, partial_json);
-    }
-    
-    if let Some(translation_file) = &cli.apply_translations {
-        return handle_translation_application(&cli, translation_file);
+    if let Some(translation_json) = &cli.apply_jsonstr {
+        return handle_translation_jsonstr(&cli, translation_json);
     }
     
     // 默认模式：字符串提取
@@ -112,16 +107,16 @@ fn validate_input(input: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 验证部分翻译选项（确保只使用一种方式）
+/// 验证翻译选项（确保只使用一种方式）
 fn validate_partial_options(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let partial_count = [
-        cli.apply_partial.is_some(),
-        cli.apply_partial_file.is_some(),
+    let translation_count = [
+        cli.apply_jsonstr.is_some(),
+        cli.apply_file.is_some(),
         cli.apply_partial_stdin,
     ].iter().filter(|&&x| x).count();
     
-    if partial_count > 1 {
-        return Err("只能使用一种部分翻译方式：--apply-partial、--apply-partial-file 或 --apply-partial-stdin".into());
+    if translation_count > 1 {
+        return Err("只能使用一种翻译方式：--apply-jsonstr、--apply-file 或 --apply-partial-stdin".into());
     }
     
     Ok(())
@@ -144,40 +139,40 @@ fn handle_test_rebuild(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 处理部分翻译应用（从字符串）
-fn handle_partial_translation_string(cli: &Cli, partial_json: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// 处理翻译应用（从字符串）
+fn handle_translation_jsonstr(cli: &Cli, translation_json: &str) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     if !cli.quiet {
-        println!("正在应用部分翻译到: {:?} (从命令行参数)", cli.input);
+        println!("正在应用翻译到: {:?} (从命令行参数)", cli.input);
     }
     
-    let translations = parse_partial_json(partial_json)?;
-    apply_partial_translations(cli, translations)
+    let translations = parse_translation_json(translation_json)?;
+    apply_translations(cli, translations)
 }
 
-/// 处理部分翻译应用（从文件）
-fn handle_partial_translation_file(cli: &Cli, partial_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    if !partial_file.exists() {
-        return Err(format!("部分翻译文件不存在: {:?}", partial_file).into());
+/// 处理翻译应用（从文件）
+fn handle_translation_file(cli: &Cli, translation_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !translation_file.exists() {
+        return Err(format!("翻译文件不存在: {:?}", translation_file).into());
     }
     
     #[cfg(debug_assertions)]
     if !cli.quiet {
-        println!("正在应用部分翻译到: {:?} (从文件: {:?})", cli.input, partial_file);
+        println!("正在应用翻译到: {:?} (从文件: {:?})", cli.input, translation_file);
     }
     
-    let partial_json = std::fs::read_to_string(partial_file)
-        .map_err(|e| format!("读取部分翻译文件失败: {}", e))?;
+    let translation_json = std::fs::read_to_string(translation_file)
+        .map_err(|e| format!("读取翻译文件失败: {}", e))?;
     
-    let translations = parse_partial_json(&partial_json)?;
-    apply_partial_translations(cli, translations)
+    let translations = parse_translation_json(&translation_json)?;
+    apply_translations(cli, translations)
 }
 
-/// 处理部分翻译应用（从标准输入）
-fn handle_partial_translation_stdin(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+/// 处理翻译应用（从标准输入）
+fn handle_translation_stdin(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     if !cli.quiet {
-        println!("正在应用部分翻译到: {:?} (从标准输入)", cli.input);
+        println!("正在应用翻译到: {:?} (从标准输入)", cli.input);
     }
     
     if !cli.quiet {
@@ -189,18 +184,18 @@ fn handle_partial_translation_stdin(cli: &Cli) -> Result<(), Box<dyn std::error:
     std::io::stdin().read_to_string(&mut buffer)
         .map_err(|e| format!("从标准输入读取失败: {}", e))?;
     
-    let translations = parse_partial_json(&buffer)?;
-    apply_partial_translations(cli, translations)
+    let translations = parse_translation_json(&buffer)?;
+    apply_translations(cli, translations)
 }
 
-/// 解析部分翻译JSON
-fn parse_partial_json(json_str: &str) -> Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
+/// 解析翻译JSON
+fn parse_translation_json(json_str: &str) -> Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
     serde_json::from_str(json_str)
-        .map_err(|e| format!("解析部分翻译JSON失败: {}", e).into())
+        .map_err(|e| format!("解析翻译JSON失败: {}", e).into())
 }
 
-/// 应用部分翻译
-fn apply_partial_translations(cli: &Cli, translations: Vec<ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
+/// 应用翻译
+fn apply_translations(cli: &Cli, translations: Vec<ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
     if translations.is_empty() {
         return Err("翻译数据为空".into());
     }
@@ -213,7 +208,7 @@ fn apply_partial_translations(cli: &Cli, translations: Vec<ExtractedString>) -> 
             println!("翻译条目 {}: [{}] {} -> \"{}\"", 
                 i + 1,
                 translation.form_id,
-                translation.string_type,
+                translation.get_string_type(),
                 if translation.original_text.chars().count() > 50 {
                     format!("{}...", translation.original_text.chars().take(50).collect::<String>())
                 } else {
@@ -226,31 +221,7 @@ fn apply_partial_translations(cli: &Cli, translations: Vec<ExtractedString>) -> 
         }
     }
     
-    let output_path = get_partial_output_path(cli);
-    Plugin::apply_translations(cli.input.clone(), output_path.clone(), translations)
-        .map_err(|e| format!("应用部分翻译失败: {}", e))?;
-    
-    if !cli.quiet {
-        println!("部分翻译应用完成，输出到: {:?}", output_path);
-    }
-    
-    Ok(())
-}
-
-/// 处理翻译文件应用
-fn handle_translation_application(cli: &Cli, translation_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    if !translation_file.exists() {
-        return Err(format!("翻译文件不存在: {:?}", translation_file).into());
-    }
-    
-    #[cfg(debug_assertions)]
-    if !cli.quiet {
-        println!("正在应用翻译: {:?} -> {:?}", translation_file, cli.input);
-    }
-    
-    let translations = load_translations(translation_file)?;
-    let output_path = get_translation_output_path(cli);
-    
+    let output_path = get_apply_output_path(cli);
     Plugin::apply_translations(cli.input.clone(), output_path.clone(), translations)
         .map_err(|e| format!("应用翻译失败: {}", e))?;
     
@@ -290,15 +261,6 @@ fn handle_string_extraction(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-/// 加载翻译文件
-fn load_translations(translation_file: &PathBuf) -> Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
-    let content = std::fs::read_to_string(translation_file)
-        .map_err(|e| format!("读取翻译文件失败: {}", e))?;
-    
-    serde_json::from_str(&content)
-        .map_err(|e| format!("解析翻译文件失败: {}", e).into())
-}
-
 /// 将字符串保存到文件
 fn save_strings_to_file(strings: &[ExtractedString], output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let json_output = serde_json::to_string_pretty(strings)
@@ -329,7 +291,7 @@ fn print_extraction_summary(_plugin: &Plugin, strings: &[ExtractedString], outpu
             println!("{}. [{}] {}: \"{}\"", 
                 i + 1, 
                 string.form_id, 
-                string.string_type, 
+                string.get_string_type(), 
                 if string.original_text.chars().count() > 50 {
                     format!("{}...", string.original_text.chars().take(50).collect::<String>())
                 } else {
@@ -355,24 +317,13 @@ fn get_rebuild_output_path(cli: &Cli) -> PathBuf {
     })
 }
 
-/// 获取部分翻译输出路径
-fn get_partial_output_path(cli: &Cli) -> PathBuf {
+/// 获取应用翻译输出路径
+fn get_apply_output_path(cli: &Cli) -> PathBuf {
     cli.output.clone().unwrap_or_else(|| {
         let mut output = cli.input.clone();
         let stem = output.file_stem().unwrap().to_str().unwrap();
         let extension = output.extension().unwrap().to_str().unwrap();
         output.set_file_name(format!("{}.{}", stem, extension));
-        output
-    })
-}
-
-/// 获取翻译输出路径
-fn get_translation_output_path(cli: &Cli) -> PathBuf {
-    cli.output.clone().unwrap_or_else(|| {
-        let mut output = cli.input.clone();
-        let stem = output.file_stem().unwrap().to_str().unwrap();
-        let extension = output.extension().unwrap().to_str().unwrap();
-        output.set_file_name(format!("{}_translated.{}", stem, extension));
         output
     })
 }
@@ -549,4 +500,10 @@ fn analyze_group_difference(group1: &Group, group2: &Group, group_index: usize) 
     }
     
     Ok(())
+}
+
+#[cfg(not(feature = "cli"))]
+fn main() {
+    eprintln!("命令行工具功能未启用。请使用 --features cli 编译，或将此库用作依赖项。");
+    std::process::exit(1);
 }

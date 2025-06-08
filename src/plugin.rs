@@ -178,18 +178,17 @@ impl Plugin {
             RawString::parse_zstring(&subrecord.data)
         };
         
-        if is_valid_string(&raw_string.content) {
-            Some(ExtractedString::new(
-                editor_id.clone(),
-                form_id_str.to_string(),
-                record_type.to_string(),
-                subrecord.record_type.clone(),
-                raw_string.content,
-                raw_string.encoding,
-            ))
-        } else {
-            None
-        }
+                        if is_valid_string(&raw_string.content) {
+                    Some(ExtractedString::new(
+                        editor_id.clone(),
+                        form_id_str.to_string(),
+                        record_type.to_string(),
+                        subrecord.record_type.clone(),
+                        raw_string.content,
+                    ))
+                } else {
+                    None
+                }
     }
     
     /// 格式化FormID
@@ -519,9 +518,10 @@ fn apply_translations_to_record(
             if let Some(translation) = translations.get(&key) {
                 if !translation.original_text.is_empty() {
                     
+                    #[cfg(debug_assertions)]
                     println!("✓ 成功应用翻译: [{}] {} -> \"{}\"", 
                         translation.form_id,
-                        translation.string_type,
+                        translation.get_string_type(),
                         if translation.original_text.chars().count() > 50 {
                             format!("{}...", translation.original_text.chars().take(50).collect::<String>())
                         } else {
@@ -529,7 +529,7 @@ fn apply_translations_to_record(
                         }
                     );
                     
-                    let encoded_data = encode_string_with_encoding(&translation.original_text, &translation.encoding)?;
+                    let encoded_data = encode_string_with_encoding(&translation.original_text, "utf-8")?;
                     subrecord.data = encoded_data;
                     subrecord.size = subrecord.data.len() as u16;
                     modified = true;

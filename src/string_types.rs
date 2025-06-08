@@ -7,18 +7,12 @@ pub struct ExtractedString {
     pub editor_id: Option<String>,
     /// 完整FormID (包含主文件)
     pub form_id: String,
-    /// 字符串类型，如"WEAP FULL"
-    pub string_type: String,
     /// 原始文本（提取时为原文，导入时为翻译文本）
     pub original_text: String,
-    /// 字符串索引(用于多字符串记录)
-    pub index: Option<u32>,
     /// 记录类型
     pub record_type: String,
     /// 子记录类型
     pub subrecord_type: String,
-    /// 字符串编码
-    pub encoding: String,
 }
 
 impl ExtractedString {
@@ -29,26 +23,19 @@ impl ExtractedString {
         record_type: String,
         subrecord_type: String,
         original_text: String,
-        encoding: String,
     ) -> Self {
-        let string_type = format!("{} {}", record_type, subrecord_type);
-        
         ExtractedString {
             editor_id,
             form_id,
-            string_type,
             original_text,
-            index: None,
             record_type,
             subrecord_type,
-            encoding,
         }
     }
     
-    /// 设置字符串索引
-    pub fn with_index(mut self, index: u32) -> Self {
-        self.index = Some(index);
-        self
+    /// 获取字符串类型（动态计算）
+    pub fn get_string_type(&self) -> String {
+        format!("{} {}", self.record_type, self.subrecord_type)
     }
     
     /// 生成唯一标识符用于匹配
@@ -56,7 +43,7 @@ impl ExtractedString {
         format!("{}|{}|{}", 
             self.editor_id.as_deref().unwrap_or(""), 
             self.form_id, 
-            self.string_type
+            self.get_string_type()
         )
     }
 } 

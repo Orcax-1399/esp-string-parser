@@ -1,7 +1,28 @@
 [package]
 name = "esp_extractor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+authors = ["Orcax-1399"]
+license = "MIT OR Apache-2.0"
+description = "A Rust library for extracting and applying translations to Bethesda ESP/ESM/ESL files"
+homepage = "https://github.com/Orcax-1399/esp-string-parser"
+repository = "https://github.com/Orcax-1399/esp-string-parser"
+keywords = ["bethesda", "skyrim", "fallout", "modding", "translation"]
+categories = ["games", "parsing", "internationalization"]
+readme = "README.md"
+
+[lib]
+name = "esp_extractor"
+crate-type = ["lib"]
+
+[[bin]]
+name = "esp_extractor"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["clap"]  # 命令行工具功能
 
 [dependencies]
 byteorder = "1.4"          # 字节序处理
@@ -9,8 +30,11 @@ flate2 = "1.0"             # zlib解压缩
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"         # JSON处理
 encoding_rs = "0.8"        # 多编码支持
-clap = { version = "4.0", features = ["derive"] }  # 命令行参数
+clap = { version = "4.0", features = ["derive"], optional = true }  # 命令行参数（可选）
 anyhow = "1.0"             # 错误处理
 thiserror = "1.0"          # 自定义错误
 bitflags = "2.0"           # 标志位处理
 chrono = "0.4"             # 时间处理
+
+[dev-dependencies]
+tempfile = "3.0"          # 临时文件（用于测试）

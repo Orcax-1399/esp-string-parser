@@ -2,7 +2,7 @@
 
 ## 🚀 问题解决
 
-原来的 `--apply-partial` 选项使用命令行参数传递 JSON 字符串，存在以下问题：
+原来的 `--apply-jsonstr` 选项使用命令行参数传递 JSON 字符串，存在以下问题：
 
 - **Windows**: 命令行长度限制 ~8191 字符
 - **Linux**: 命令行长度限制 ~131072 字符 (128KB)
@@ -18,7 +18,7 @@
 
 ```bash
 # 原有方式，适合少量翻译条目
-cargo run -- --input plugin.esp --apply-partial '[{"editor_id":"TestItem","form_id":"00012345|plugin.esp","string_type":"WEAP FULL","original_text":"翻译后的文本","encoding":"utf8","record_type":"WEAP","subrecord_type":"FULL"}]'
+cargo run -- --input plugin.esp --apply-jsonstr '[{"editor_id":"TestItem","form_id":"00012345|plugin.esp","original_text":"翻译后的文本","record_type":"WEAP","subrecord_type":"FULL"}]'
 ```
 
 **优点**: 简单直接  
@@ -29,7 +29,7 @@ cargo run -- --input plugin.esp --apply-partial '[{"editor_id":"TestItem","form_
 
 ```bash
 # 从文件读取，避免命令行限制
-cargo run -- --input plugin.esp --apply-partial-file translations.json
+cargo run -- --input plugin.esp --apply-file translations.json
 ```
 
 **创建 `translations.json` 文件**:
@@ -38,18 +38,14 @@ cargo run -- --input plugin.esp --apply-partial-file translations.json
   {
     "editor_id": "TestItem1",
     "form_id": "00012345|plugin.esp",
-    "string_type": "WEAP FULL",
     "original_text": "翻译后的文本1",
-    "encoding": "utf8",
     "record_type": "WEAP",
     "subrecord_type": "FULL"
   },
   {
     "editor_id": "TestItem2", 
     "form_id": "00012346|plugin.esp",
-    "string_type": "ARMO FULL",
     "original_text": "翻译后的文本2",
-    "encoding": "utf8",
     "record_type": "ARMO",
     "subrecord_type": "FULL"
   }
@@ -90,7 +86,7 @@ cat translations.json | cargo run -- --input plugin.esp --apply-partial-stdin
 ### 场景1: 快速测试单个翻译
 
 ```bash
-cargo run -- --input plugin.esp --apply-partial '[{"editor_id":"Sword01","form_id":"00001234|plugin.esp","string_type":"WEAP FULL","original_text":"魔法剑","encoding":"utf8","record_type":"WEAP","subrecord_type":"FULL"}]'
+cargo run -- --input plugin.esp --apply-jsonstr '[{"editor_id":"Sword01","form_id":"00001234|plugin.esp","original_text":"魔法剑","record_type":"WEAP","subrecord_type":"FULL"}]'
 ```
 
 ### 场景2: 批量应用翻译文件
@@ -98,7 +94,7 @@ cargo run -- --input plugin.esp --apply-partial '[{"editor_id":"Sword01","form_i
 ```bash
 # 1. 准备翻译文件 batch_translations.json
 # 2. 应用翻译
-cargo run -- --input plugin.esp --apply-partial-file batch_translations.json --output translated_plugin.esp
+cargo run -- --input plugin.esp --apply-file batch_translations.json --output translated_plugin.esp
 ```
 
 ### 场景3: 脚本自动化
@@ -110,8 +106,8 @@ cargo run -- --input plugin.esp --apply-partial-file batch_translations.json --o
 # 生成翻译数据
 generate_translations() {
   echo '[
-    {"editor_id":"Item1","form_id":"00001234|plugin.esp","string_type":"WEAP FULL","original_text":"剑","encoding":"utf8","record_type":"WEAP","subrecord_type":"FULL"},
-    {"editor_id":"Item2","form_id":"00001235|plugin.esp","string_type":"ARMO FULL","original_text":"盾","encoding":"utf8","record_type":"ARMO","subrecord_type":"FULL"}
+    {"editor_id":"Item1","form_id":"00001234|plugin.esp","original_text":"剑","record_type":"WEAP","subrecord_type":"FULL"},
+    {"editor_id":"Item2","form_id":"00001235|plugin.esp","original_text":"盾","record_type":"ARMO","subrecord_type":"FULL"}
   ]'
 }
 
@@ -127,9 +123,9 @@ generate_translations | cargo run -- --input plugin.esp --apply-partial-stdin
 
 ```bash
 # ❌ 错误：同时使用多种方式
-cargo run -- --input plugin.esp --apply-partial '[]' --apply-partial-file file.json
+cargo run -- --input plugin.esp --apply-jsonstr '[]' --apply-file file.json
 
-# 输出错误：只能使用一种部分翻译方式：--apply-partial、--apply-partial-file 或 --apply-partial-stdin
+# 输出错误：只能使用一种部分翻译方式：--apply-jsonstr、--apply-file 或 --apply-partial-stdin
 ```
 
 ### JSON 格式验证
@@ -147,11 +143,11 @@ cargo run -- --input plugin.esp --apply-partial '[]' --apply-partial-file file.j
 
 ## 🎉 总结
 
-| 方式 | 命令行参数 | 文件输入 | 标准输入 |
+| 方式 | JSON字符串 | 文件输入 | 标准输入 |
 |------|------------|----------|----------|
 | **限制** | ~8KB (Windows) | 无限制 | 无限制 |
 | **适用场景** | 快速测试 | 批量处理 | 自动化脚本 |
 | **复杂度** | 简单 | 中等 | 复杂 |
 | **重复使用** | 困难 | 容易 | 中等 |
 
-现在你可以根据实际需求选择最合适的方式来应用部分翻译，完全避免了命令行缓冲区限制的问题！🚀 
+现在你可以根据实际需求选择最合适的方式来应用翻译，完全避免了命令行缓冲区限制的问题！🚀 
