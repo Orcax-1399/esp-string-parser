@@ -1,0 +1,731 @@
+# ESP字符串提取工具 - Rust实现规范文档
+
+## 1. 项目结构
+
+```
+esp_extractor/
+├── Cargo.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── datatypes.rs      // 基础数据类型
+│   ├── record.rs         // 记录解析
+│   ├── group.rs          // 组解析
+│   ├── plugin.rs         // 插件主类
+│   ├── subrecord.rs      // 子记录解析
+│   ├── string_types.rs   // 字符串类型定义
+│   └── utils.rs          // 工具函数
+├── data/
+│   └── string_records.json  // 字符串记录定义
+└── README.md
+```
+
+## 2. Cargo.toml 依赖
+
+```toml
+[package]
+name = "esp_extractor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.4"          # 字节序处理
+flate2 = "1.0"             # zlib解压缩
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"         # JSON处理
+encoding_rs = "0.8"        # 多编码支持
+clap = { version = "4.0", features = ["derive"] }  # 命令行参数
+anyhow = "1.0"             # 错误处理
+thiserror = "1.0"          # 自定义错误
+```
+
+## 3. ESP文件二进制结构详解
+
+### 3.1 文件整体结构
+```
+ESP文件 = Header记录 + Group1 + Group2 + ... + GroupN
+```
+
+### 3.2 记录(Record)二进制结构 (24字节头部)
+```
+偏移量  大小   类型      描述
+0x00    4     char[4]   记录类型 ("TES4", "WEAP", "ARMO"等)
+0x04    4     uint32    数据大小(不包含头部24字节)
+0x08    4     uint32    标志位
+0x0C    4     uint32    FormID (十六进制)
+0x10    2     uint16    时间戳
+0x12    2     uint16    版本控制信息
+0x14    2     uint16    内部版本
+0x16    2     uint16    未知字段
+0x18    N     bytes     数据部分(如果压缩则需解压)
+```
+
+### 3.3 组(Group)二进制结构 (24字节头部)
+```
+偏移量  大小   类型      描述
+0x00    4     char[4]   组类型 ("GRUP")
+0x04    4     uint32    组大小(包含头部24字节)
+0x08    4     bytes     标签(根据组类型不同而不同)
+0x0C    4     int32     组类型(0=普通, 1=世界, 6=单元格等)
+0x10    2     uint16    时间戳
+0x12    2     uint16    版本控制信息
+0x14    4     uint32    未知字段
+0x18    N     bytes     子记录/子组数据
+```
+
+### 3.4 子记录(Subrecord)二进制结构 (6字节头部)
+```
+偏移量  大小   类型      描述
+0x00    4     char[4]   子记录类型 ("FULL", "DESC", "EDID"等)
+0x04    2     uint16    数据大小
+0x06    N     bytes     数据内容
+```
+
+## 4. 数据类型实现 (datatypes.rs)
+
+### 4.1 基础整数类型
+```rust
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{Read, Cursor};
+
+pub fn read_u8(cursor: &mut Cursor<&[u8]>) -> Result<u8, std::io::Error> {
+    cursor.read_u8()
+}
+
+pub fn read_u16(cursor: &mut Cursor<&[u8]>) -> Result<u16, std::io::Error> {
+    cursor.read_u16::<LittleEndian>()
+}
+
+pub fn read_u32(cursor: &mut Cursor<&[u8]>) -> Result<u32, std::io::Error> {
+    cursor.read_u32::<LittleEndian>()
+}
+
+pub fn read_i32(cursor: &mut Cursor<&[u8]>) -> Result<i32, std::io::Error> {
+    cursor.read_i32::<LittleEndian>()
+}
+```
+
+### 4.2 字符串类型处理
+```rust
+// 支持的编码
+const SUPPORTED_ENCODINGS: &[&str] = &["utf-8", "windows-1252", "windows-1250", "windows-1251"];
+
+#[derive(Debug, Clone)]
+pub struct RawString {
+    pub content: String,
+    pub encoding: String,
+}
+
+impl RawString {
+    // 尝试多种编码解码
+    pub fn decode(data: &[u8]) -> Self {
+        for encoding_name in SUPPORTED_ENCODINGS {
+            if let Some(encoding) = encoding_rs::Encoding::for_label(encoding_name.as_bytes()) {
+                let (decoded, _, had_errors) = encoding.decode(data);
+                if !had_errors {
+                    return RawString {
+                        content: decoded.into_owned(),
+                        encoding: encoding_name.to_string(),
+                    };
+                }
+            }
+        }
+        
+        // 回退到UTF-8，忽略错误
+        RawString {
+            content: String::from_utf8_lossy(data).into_owned(),
+            encoding: "utf-8".to_string(),
+        }
+    }
+    
+    // Z字符串解析(以null结尾)
+    pub fn parse_zstring(data: &[u8]) -> Self {
+        let null_pos = data.iter().position(|&b| b == 0).unwrap_or(data.len());
+        Self::decode(&data[..null_pos])
+    }
+    
+    // B字符串解析(长度前缀)
+    pub fn parse_bstring(cursor: &mut Cursor<&[u8]>) -> Result<Self, std::io::Error> {
+        let length = read_u8(cursor)? as usize;
+        let mut buffer = vec![0u8; length];
+        cursor.read_exact(&mut buffer)?;
+        
+        // 移除末尾的null字符
+        if let Some(null_pos) = buffer.iter().position(|&b| b == 0) {
+            buffer.truncate(null_pos);
+        }
+        
+        Ok(Self::decode(&buffer))
+    }
+}
+```
+
+### 4.3 标志位处理
+```rust
+bitflags::bitflags! {
+    pub struct RecordFlags: u32 {
+        const MASTER_FILE = 0x00000001;        // ESM标志
+        const DELETED = 0x00000020;            // 已删除
+        const PERSISTENT = 0x00000400;         // 持久化
+        const DISABLED = 0x00000800;           // 禁用
+        const VISIBLE_DISTANT = 0x00008000;    // 远距离可见
+        const COMPRESSED = 0x00040000;         // 压缩
+        const LOCALIZED = 0x00000080;          // 本地化
+        const LIGHT_MASTER = 0x00000200;       // 轻量级主文件
+    }
+}
+```
+
+## 5. 字符串记录定义
+
+### 5.1 string_records.json 文件结构
+```json
+{
+    "WEAP": ["FULL", "DESC"],
+    "ARMO": ["FULL", "DESC"],
+    "NPC_": ["FULL", "SHRT"],
+    "BOOK": ["FULL", "DESC", "CNAM"],
+    "QUST": ["FULL", "CNAM", "NNAM"],
+    "INFO": ["NAM1", "RNAM"],
+    "DIAL": ["FULL"],
+    "MESG": ["DESC", "FULL", "ITXT"],
+    "PERK": ["FULL", "DESC", "EPF2", "EPFD"],
+    "MGEF": ["FULL", "DNAM"],
+    "CELL": ["FULL"],
+    "WRLD": ["FULL"],
+    "LCTN": ["FULL"],
+    "NOTE": ["FULL", "TNAM"],
+    "CONT": ["FULL"],
+    "DOOR": ["FULL"],
+    "LIGH": ["FULL"],
+    "MISC": ["FULL"],
+    "KEYM": ["FULL"],
+    "ALCH": ["FULL"],
+    "INGR": ["FULL"],
+    "SCRL": ["FULL", "DESC"],
+    "SPEL": ["FULL", "DESC"],
+    "ENCH": ["FULL"],
+    "AMMO": ["FULL", "DESC"],
+    "ACTI": ["FULL", "RNAM"],
+    "FLOR": ["FULL", "RNAM"],
+    "FURN": ["FULL"],
+    "TACT": ["FULL"],
+    "TREE": ["FULL"],
+    "AVIF": ["FULL", "DESC"],
+    "RACE": ["FULL", "DESC"],
+    "SHOU": ["FULL", "DESC"],
+    "PROJ": ["FULL"],
+    "HAZD": ["FULL"],
+    "SLGM": ["FULL"],
+    "EXPL": ["FULL"],
+    "APPA": ["FULL", "DESC"],
+    "WOOP": ["FULL", "TNAM"],
+    "LSCR": ["DESC"],
+    "REFR": ["FULL"],
+    "REGN": ["RDMP"]
+}
+```
+
+## 6. 核心数据结构
+
+### 6.1 提取的字符串结构
+```rust
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractedString {
+    pub editor_id: Option<String>,     // EDID字段
+    pub form_id: String,               // 完整FormID (包含主文件)
+    pub string_type: String,           // 如"WEAP FULL"
+    pub original_text: String,         // 原始文本
+    pub index: Option<u32>,            // 字符串索引(用于多字符串记录)
+    pub record_type: String,           // 记录类型
+    pub subrecord_type: String,        // 子记录类型
+    pub encoding: String,              // 字符串编码
+}
+```
+
+### 6.2 子记录结构
+```rust
+#[derive(Debug)]
+pub struct Subrecord {
+    pub record_type: String,           // 4字符类型
+    pub size: u16,                     // 数据大小
+    pub data: Vec<u8>,                 // 原始数据
+}
+
+impl Subrecord {
+    pub fn parse(cursor: &mut Cursor<&[u8]>) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut type_bytes = [0u8; 4];
+        cursor.read_exact(&mut type_bytes)?;
+        let record_type = String::from_utf8_lossy(&type_bytes).into_owned();
+        
+        let size = read_u16(cursor)?;
+        let mut data = vec![0u8; size as usize];
+        cursor.read_exact(&mut data)?;
+        
+        Ok(Subrecord {
+            record_type,
+            size,
+            data,
+        })
+    }
+}
+```
+
+### 6.3 记录结构
+```rust
+#[derive(Debug)]
+pub struct Record {
+    pub record_type: String,           // 记录类型
+    pub data_size: u32,               // 数据大小
+    pub flags: RecordFlags,           // 标志位
+    pub form_id: u32,                 // FormID
+    pub timestamp: u16,               // 时间戳
+    pub version_control_info: u16,    // 版本控制
+    pub internal_version: u16,        // 内部版本
+    pub unknown: u16,                 // 未知字段
+    pub subrecords: Vec<Subrecord>,   // 子记录列表
+}
+
+impl Record {
+    pub fn parse(cursor: &mut Cursor<&[u8]>) -> Result<Self, Box<dyn std::error::Error>> {
+        // 读取记录头部(24字节)
+        let mut type_bytes = [0u8; 4];
+        cursor.read_exact(&mut type_bytes)?;
+        let record_type = String::from_utf8_lossy(&type_bytes).into_owned();
+        
+        let data_size = read_u32(cursor)?;
+        let flags = RecordFlags::from_bits_truncate(read_u32(cursor)?);
+        let form_id = read_u32(cursor)?;
+        let timestamp = read_u16(cursor)?;
+        let version_control_info = read_u16(cursor)?;
+        let internal_version = read_u16(cursor)?;
+        let unknown = read_u16(cursor)?;
+        
+        // 读取数据部分
+        let mut data = vec![0u8; data_size as usize];
+        cursor.read_exact(&mut data)?;
+        
+        // 如果压缩，解压数据
+        let final_data = if flags.contains(RecordFlags::COMPRESSED) {
+            let mut data_cursor = Cursor::new(&data[..]);
+            let decompressed_size = read_u32(&mut data_cursor)?;
+            let compressed_data = &data[4..];
+            
+            use flate2::read::ZlibDecoder;
+            let mut decoder = ZlibDecoder::new(compressed_data);
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed)?;
+            decompressed
+        } else {
+            data
+        };
+        
+        // 解析子记录
+        let subrecords = Self::parse_subrecords(&final_data)?;
+        
+        Ok(Record {
+            record_type,
+            data_size,
+            flags,
+            form_id,
+            timestamp,
+            version_control_info,
+            internal_version,
+            unknown,
+            subrecords,
+        })
+    }
+    
+    fn parse_subrecords(data: &[u8]) -> Result<Vec<Subrecord>, Box<dyn std::error::Error>> {
+        let mut subrecords = Vec::new();
+        let mut cursor = Cursor::new(data);
+        
+        while cursor.position() < data.len() as u64 {
+            let subrecord = Subrecord::parse(&mut cursor)?;
+            subrecords.push(subrecord);
+        }
+        
+        Ok(subrecords)
+    }
+}
+```
+
+## 7. 字符串提取核心逻辑
+
+### 7.1 字符串验证函数
+```rust
+pub fn is_valid_string(text: &str) -> bool {
+    let text = text.trim();
+    
+    // 空字符串无效
+    if text.is_empty() {
+        return false;
+    }
+    
+    // 黑名单检查
+    const BLACKLIST: &[&str] = &["<p>"];
+    if BLACKLIST.contains(&text) {
+        return false;
+    }
+    
+    // 白名单检查
+    const WHITELIST: &[&str] = &["WoollyRhino", "CuSith"];
+    if WHITELIST.iter().any(|&w| text.contains(w)) || text.contains("<Alias") {
+        return true;
+    }
+    
+    // 检查是否为驼峰命名或下划线命名(这些通常是变量名)
+    if is_camel_case(text) || is_snake_case(text) {
+        return false;
+    }
+    
+    // 检查是否包含不可打印字符
+    text.chars().all(|c| c.is_ascii_graphic() || c.is_whitespace())
+}
+
+fn is_camel_case(text: &str) -> bool {
+    if text.len() < 3 {
+        return false;
+    }
+    
+    text.chars().skip(2).any(|c| c.is_ascii_uppercase()) 
+        && !text.chars().all(|c| c.is_ascii_uppercase())
+        && text.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+fn is_snake_case(text: &str) -> bool {
+    !text.contains(' ') && text.contains('_')
+}
+```
+
+### 7.2 插件解析主函数
+```rust
+pub struct Plugin {
+    pub path: PathBuf,
+    pub header: Record,
+    pub groups: Vec<Group>,
+    pub masters: Vec<String>,
+    pub string_records: HashMap<String, Vec<String>>,
+}
+
+impl Plugin {
+    pub fn new(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        // 加载字符串记录定义
+        let string_records = Self::load_string_records()?;
+        
+        // 读取文件
+        let data = std::fs::read(&path)?;
+        let mut cursor = Cursor::new(&data[..]);
+        
+        // 解析头部记录
+        let header = Record::parse(&mut cursor)?;
+        
+        // 提取主文件列表
+        let masters = Self::extract_masters(&header);
+        
+        // 解析组
+        let mut groups = Vec::new();
+        while cursor.position() < data.len() as u64 {
+            let group = Group::parse(&mut cursor)?;
+            groups.push(group);
+        }
+        
+        Ok(Plugin {
+            path,
+            header,
+            groups,
+            masters,
+            string_records,
+        })
+    }
+    
+    fn load_string_records() -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
+        let json_data = include_str!("../data/string_records.json");
+        Ok(serde_json::from_str(json_data)?)
+    }
+    
+    fn extract_masters(header: &Record) -> Vec<String> {
+        header.subrecords.iter()
+            .filter(|sr| sr.record_type == "MAST")
+            .map(|sr| RawString::parse_zstring(&sr.data).content)
+            .collect()
+    }
+    
+    pub fn extract_strings(&self) -> Vec<ExtractedString> {
+        let mut strings = Vec::new();
+        
+        for group in &self.groups {
+            strings.extend(self.extract_group_strings(group));
+        }
+        
+        strings
+    }
+    
+    fn extract_group_strings(&self, group: &Group) -> Vec<ExtractedString> {
+        let mut strings = Vec::new();
+        
+        for child in &group.children {
+            match child {
+                GroupChild::Group(subgroup) => {
+                    strings.extend(self.extract_group_strings(subgroup));
+                }
+                GroupChild::Record(record) => {
+                    strings.extend(self.extract_record_strings(record));
+                }
+            }
+        }
+        
+        strings
+    }
+    
+    fn extract_record_strings(&self, record: &Record) -> Vec<ExtractedString> {
+        let mut strings = Vec::new();
+        
+        // 检查这种记录类型是否包含字符串
+        let string_types = match self.string_records.get(&record.record_type) {
+            Some(types) => types,
+            None => return strings,
+        };
+        
+        // 获取EDID(编辑器ID)
+        let editor_id = record.subrecords.iter()
+            .find(|sr| sr.record_type == "EDID")
+            .map(|sr| RawString::parse_zstring(&sr.data).content);
+        
+        // 计算主文件索引
+        let master_index = (record.form_id >> 24) as usize;
+        let master_file = if master_index < self.masters.len() {
+            &self.masters[master_index]
+        } else {
+            self.path.file_name().unwrap().to_str().unwrap()
+        };
+        
+        let form_id_str = format!("{:08X}|{}", record.form_id, master_file);
+        
+        // 提取字符串子记录
+        for subrecord in &record.subrecords {
+            if string_types.contains(&subrecord.record_type) {
+                let raw_string = if self.header.flags.contains(RecordFlags::LOCALIZED) {
+                    // 本地化插件：数据是字符串ID
+                    let mut cursor = Cursor::new(&subrecord.data[..]);
+                    let string_id = read_u32(&mut cursor).unwrap_or(0);
+                    RawString {
+                        content: format!("StringID_{}", string_id),
+                        encoding: "ascii".to_string(),
+                    }
+                } else {
+                    // 普通插件：直接解析字符串
+                    RawString::parse_zstring(&subrecord.data)
+                };
+                
+                if is_valid_string(&raw_string.content) {
+                    strings.push(ExtractedString {
+                        editor_id: editor_id.clone(),
+                        form_id: form_id_str.clone(),
+                        string_type: format!("{} {}", record.record_type, subrecord.record_type),
+                        original_text: raw_string.content,
+                        index: None, // TODO: 实现特殊记录的索引计算
+                        record_type: record.record_type.clone(),
+                        subrecord_type: subrecord.record_type.clone(),
+                        encoding: raw_string.encoding,
+                    });
+                }
+            }
+        }
+        
+        strings
+    }
+}
+```
+
+## 8. 命令行接口
+
+### 8.1 main.rs 实现
+```rust
+use clap::Parser;
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "esp_extractor")]
+#[command(about = "Extract translatable strings from ESP/ESM/ESL files")]
+struct Cli {
+    /// Input ESP/ESM/ESL file path
+    #[arg(short, long)]
+    input: PathBuf,
+    
+    /// Output JSON file path
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    
+    /// Include localized strings (by ID)
+    #[arg(long)]
+    include_localized: bool,
+    
+    /// Include all strings (skip validation)
+    #[arg(long)]
+    unfiltered: bool,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+    
+    // 验证输入文件
+    if !cli.input.exists() {
+        eprintln!("Error: Input file does not exist: {:?}", cli.input);
+        std::process::exit(1);
+    }
+    
+    let extension = cli.input.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+    
+    if !matches!(extension.as_deref(), Some("esp") | Some("esm") | Some("esl")) {
+        eprintln!("Error: Input file must be an ESP, ESM, or ESL file");
+        std::process::exit(1);
+    }
+    
+    println!("Parsing plugin: {:?}", cli.input);
+    
+    // 解析插件
+    let plugin = Plugin::new(cli.input.clone())?;
+    let strings = plugin.extract_strings();
+    
+    println!("Extracted {} strings", strings.len());
+    
+    // 输出结果
+    let output_path = cli.output.unwrap_or_else(|| {
+        cli.input.with_extension("json")
+    });
+    
+    let json_output = serde_json::to_string_pretty(&strings)?;
+    std::fs::write(&output_path, json_output)?;
+    
+    println!("Results written to: {:?}", output_path);
+    
+    Ok(())
+}
+```
+
+## 9. 测试用例
+
+### 9.1 单元测试
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_string_validation() {
+        assert!(is_valid_string("Iron Sword"));
+        assert!(is_valid_string("This is a valid description."));
+        assert!(!is_valid_string("CamelCaseVariable"));
+        assert!(!is_valid_string("snake_case_var"));
+        assert!(!is_valid_string(""));
+        assert!(!is_valid_string("<p>"));
+    }
+    
+    #[test]
+    fn test_zstring_parsing() {
+        let data = b"Hello World\0";
+        let result = RawString::parse_zstring(data);
+        assert_eq!(result.content, "Hello World");
+    }
+    
+    #[test]
+    fn test_record_parsing() {
+        // 模拟记录数据进行测试
+        // 这里需要构造实际的二进制数据进行测试
+    }
+}
+```
+
+## 10. 构建和使用
+
+### 10.1 构建命令
+```bash
+cargo build --release
+```
+
+### 10.2 使用示例
+```bash
+# 提取字符串到JSON文件
+./esp_extractor -i Skyrim.esm -o skyrim_strings.json
+
+# 包含本地化字符串
+./esp_extractor -i MyMod.esp -o mod_strings.json --include-localized
+
+# 提取所有字符串(不过滤)
+./esp_extractor -i MyMod.esp -o all_strings.json --unfiltered
+```
+
+## 11. 输出格式
+
+### 11.1 JSON输出示例
+```json
+[
+    {
+        "editor_id": "IronSword",
+        "form_id": "00012BB7|Skyrim.esm",
+        "string_type": "WEAP FULL",
+        "original_text": "Iron Sword",
+        "index": null,
+        "record_type": "WEAP",
+        "subrecord_type": "FULL",
+        "encoding": "utf-8"
+    },
+    {
+        "editor_id": "IronSword",
+        "form_id": "00012BB7|Skyrim.esm",
+        "string_type": "WEAP DESC",
+        "original_text": "A standard iron sword.",
+        "index": null,
+        "record_type": "WEAP",
+        "subrecord_type": "DESC",
+        "encoding": "utf-8"
+    }
+]
+```
+
+## 12. 错误处理
+
+### 12.1 自定义错误类型
+```rust
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum EspError {
+    #[error("Invalid file format")]
+    InvalidFormat,
+    
+    #[error("Unsupported record type: {0}")]
+    UnsupportedRecordType(String),
+    
+    #[error("Compression error: {0}")]
+    CompressionError(String),
+    
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+    
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+}
+```
+
+## 13. 性能优化建议
+
+1. 使用内存映射文件(mmap)处理大文件
+2. 并行处理多个组
+3. 缓存字符串记录定义
+4. 使用零拷贝字符串解析
+5. 实现流式JSON输出处理大量字符串
+
+## 14. 扩展功能
+
+1. 支持ESL文件的FormID重映射
+2. 实现字符串去重
+3. 支持批量处理多个文件
+4. 添加字符串统计信息
+5. 支持自定义字符串过滤规则
+6. 实现增量更新机制
+
+这个规范文档提供了完整的技术细节，包括二进制格式、数据结构、解析逻辑和实现步骤。下一个AI可以基于这个规范直接实现Rust版本的ESP字符串提取工具。 
