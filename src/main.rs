@@ -1,6 +1,9 @@
 use clap::Parser;
 use std::path::PathBuf;
-use esp_extractor::{Plugin, ExtractedString, EspDebugger, SUPPORTED_EXTENSIONS};
+use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS};
+
+#[cfg(debug_assertions)]
+use esp_extractor::EspDebugger;
 
 #[derive(Parser)]
 #[command(name = "esp_extractor")]
@@ -193,8 +196,9 @@ fn save_strings_to_file(strings: &[ExtractedString], output_path: &PathBuf) -> R
 }
 
 /// 打印提取摘要信息
-fn print_extraction_summary(plugin: &Plugin, strings: &[ExtractedString], output_path: &PathBuf) {
-    let stats = plugin.get_stats();
+fn print_extraction_summary(_plugin: &Plugin, strings: &[ExtractedString], output_path: &PathBuf) {
+    #[cfg(debug_assertions)]
+    let stats = _plugin.get_stats();
     
     #[cfg(debug_assertions)]
     {
@@ -320,9 +324,11 @@ fn generate_debug_info(_plugin: &Plugin, _input_path: &PathBuf, _output_path: &P
 }
 
 /// 比较文件大小
-fn compare_file_sizes(input_path: &PathBuf, output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let original_size = std::fs::metadata(input_path)?.len();
-    let rebuilt_size = std::fs::metadata(output_path)?.len();
+fn compare_file_sizes(_input_path: &PathBuf, _output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(debug_assertions)]
+    let original_size = std::fs::metadata(_input_path)?.len();
+    #[cfg(debug_assertions)]
+    let rebuilt_size = std::fs::metadata(_output_path)?.len();
     
     #[cfg(debug_assertions)]
     {

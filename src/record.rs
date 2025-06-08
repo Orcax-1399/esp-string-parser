@@ -247,11 +247,10 @@ impl Record {
     }
     
     /// 验证zlib头部
-    fn validate_zlib_header(data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        if data.len() >= 2 {
-            let first_byte = data[0];
-            
-            #[cfg(debug_assertions)]
+    fn validate_zlib_header(_data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        #[cfg(debug_assertions)]
+        if _data.len() >= 2 {
+            let first_byte = _data[0];
             if first_byte != 0x78 {
                 println!("警告: 不是标准zlib头部 (0x{:02X})，尝试解压", first_byte);
             }

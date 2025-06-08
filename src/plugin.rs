@@ -30,7 +30,10 @@ impl Plugin {
         output_path: PathBuf,
         translations: Vec<ExtractedString>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        #[cfg(debug_assertions)]
         let backup_path = crate::utils::create_backup(&input_path)?;
+        #[cfg(not(debug_assertions))]
+        let _backup_path = crate::utils::create_backup(&input_path)?;
         
         #[cfg(debug_assertions)]
         println!("已创建备份文件: {:?}", backup_path);
