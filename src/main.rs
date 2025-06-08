@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS};
+use esp_extractor::group::{Group, GroupChild};
 
 #[cfg(debug_assertions)]
 use esp_extractor::EspDebugger;
@@ -42,23 +43,48 @@ struct Cli {
     #[arg(long)]
     apply_partial: Option<String>,
     
+    /// 应用部分翻译：从JSON文件读取翻译对象（避免命令行长度限制）
+    #[arg(long)]
+    apply_partial_file: Option<PathBuf>,
+    
+    /// 应用部分翻译：从标准输入读取JSON翻译对象
+    #[arg(long)]
+    apply_partial_stdin: bool,
+    
     /// 测试模式：解析文件后直接重建，用于验证解析和重建逻辑
     #[arg(long)]
     test_rebuild: bool,
+    
+    /// 对比两个ESP文件的结构差异
+    #[arg(long)]
+    compare_files: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     
     validate_input(&cli.input)?;
+    validate_partial_options(&cli)?;
     
     // 处理不同的操作模式
     if cli.test_rebuild {
         return handle_test_rebuild(&cli);
     }
     
+    if let Some(compare_file) = &cli.compare_files {
+        return handle_file_comparison(&cli, compare_file);
+    }
+    
+    if cli.apply_partial_stdin {
+        return handle_partial_translation_stdin(&cli);
+    }
+    
+    if let Some(partial_file) = &cli.apply_partial_file {
+        return handle_partial_translation_file(&cli, partial_file);
+    }
+    
     if let Some(partial_json) = &cli.apply_partial {
-        return handle_partial_translation(&cli, partial_json);
+        return handle_partial_translation_string(&cli, partial_json);
     }
     
     if let Some(translation_file) = &cli.apply_translations {
@@ -86,6 +112,21 @@ fn validate_input(input: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// 验证部分翻译选项（确保只使用一种方式）
+fn validate_partial_options(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let partial_count = [
+        cli.apply_partial.is_some(),
+        cli.apply_partial_file.is_some(),
+        cli.apply_partial_stdin,
+    ].iter().filter(|&&x| x).count();
+    
+    if partial_count > 1 {
+        return Err("只能使用一种部分翻译方式：--apply-partial、--apply-partial-file 或 --apply-partial-stdin".into());
+    }
+    
+    Ok(())
+}
+
 /// 处理测试重建模式
 fn handle_test_rebuild(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if !cli.quiet {
@@ -103,15 +144,87 @@ fn handle_test_rebuild(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 处理部分翻译应用
-fn handle_partial_translation(cli: &Cli, partial_json: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// 处理部分翻译应用（从字符串）
+fn handle_partial_translation_string(cli: &Cli, partial_json: &str) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     if !cli.quiet {
-        println!("正在应用部分翻译到: {:?}", cli.input);
+        println!("正在应用部分翻译到: {:?} (从命令行参数)", cli.input);
     }
     
-    let translations: Vec<ExtractedString> = serde_json::from_str(partial_json)
-        .map_err(|e| format!("解析部分翻译JSON失败: {}", e))?;
+    let translations = parse_partial_json(partial_json)?;
+    apply_partial_translations(cli, translations)
+}
+
+/// 处理部分翻译应用（从文件）
+fn handle_partial_translation_file(cli: &Cli, partial_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !partial_file.exists() {
+        return Err(format!("部分翻译文件不存在: {:?}", partial_file).into());
+    }
+    
+    #[cfg(debug_assertions)]
+    if !cli.quiet {
+        println!("正在应用部分翻译到: {:?} (从文件: {:?})", cli.input, partial_file);
+    }
+    
+    let partial_json = std::fs::read_to_string(partial_file)
+        .map_err(|e| format!("读取部分翻译文件失败: {}", e))?;
+    
+    let translations = parse_partial_json(&partial_json)?;
+    apply_partial_translations(cli, translations)
+}
+
+/// 处理部分翻译应用（从标准输入）
+fn handle_partial_translation_stdin(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(debug_assertions)]
+    if !cli.quiet {
+        println!("正在应用部分翻译到: {:?} (从标准输入)", cli.input);
+    }
+    
+    if !cli.quiet {
+        eprintln!("等待从标准输入读取JSON数据... (Ctrl+D结束输入)");
+    }
+    
+    use std::io::Read;
+    let mut buffer = String::new();
+    std::io::stdin().read_to_string(&mut buffer)
+        .map_err(|e| format!("从标准输入读取失败: {}", e))?;
+    
+    let translations = parse_partial_json(&buffer)?;
+    apply_partial_translations(cli, translations)
+}
+
+/// 解析部分翻译JSON
+fn parse_partial_json(json_str: &str) -> Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
+    serde_json::from_str(json_str)
+        .map_err(|e| format!("解析部分翻译JSON失败: {}", e).into())
+}
+
+/// 应用部分翻译
+fn apply_partial_translations(cli: &Cli, translations: Vec<ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
+    if translations.is_empty() {
+        return Err("翻译数据为空".into());
+    }
+    
+    if !cli.quiet {
+        println!("准备应用 {} 个翻译条目", translations.len());
+        
+        // 显示前3个翻译条目的详细信息
+        for (i, translation) in translations.iter().take(3).enumerate() {
+            println!("翻译条目 {}: [{}] {} -> \"{}\"", 
+                i + 1,
+                translation.form_id,
+                translation.string_type,
+                if translation.original_text.chars().count() > 50 {
+                    format!("{}...", translation.original_text.chars().take(50).collect::<String>())
+                } else {
+                    translation.original_text.clone()
+                }
+            );
+        }
+        if translations.len() > 3 {
+            println!("... 还有 {} 个翻译条目", translations.len() - 3);
+        }
+    }
     
     let output_path = get_partial_output_path(cli);
     Plugin::apply_translations(cli.input.clone(), output_path.clone(), translations)
@@ -217,8 +330,8 @@ fn print_extraction_summary(_plugin: &Plugin, strings: &[ExtractedString], outpu
                 i + 1, 
                 string.form_id, 
                 string.string_type, 
-                if string.original_text.len() > 50 {
-                    format!("{}...", &string.original_text[..50])
+                if string.original_text.chars().count() > 50 {
+                    format!("{}...", string.original_text.chars().take(50).collect::<String>())
                 } else {
                     string.original_text.clone()
                 }
@@ -341,6 +454,98 @@ fn compare_file_sizes(_input_path: &PathBuf, _output_path: &PathBuf) -> Result<(
         } else {
             println!("⚠ 文件大小不一致，差异: {} 字节", (rebuilt_size as i64) - (original_size as i64));
         }
+    }
+    
+    Ok(())
+}
+
+/// 处理文件对比
+fn handle_file_comparison(cli: &Cli, compare_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !compare_file.exists() {
+        return Err(format!("对比文件不存在: {:?}", compare_file).into());
+    }
+    
+    if !cli.quiet {
+        println!("正在对比文件结构:");
+        println!("  文件1: {:?}", cli.input);
+        println!("  文件2: {:?}", compare_file);
+    }
+    
+    let plugin1 = Plugin::new(cli.input.clone())?;
+    let plugin2 = Plugin::new(compare_file.clone())?;
+    
+    // 对比基本信息
+    println!("\n=== 基本信息对比 ===");
+    println!("组数量: {} vs {}", plugin1.groups.len(), plugin2.groups.len());
+    
+    if plugin1.groups.len() != plugin2.groups.len() {
+        println!("⚠️ 组数量不匹配！");
+        return Ok(());
+    }
+    
+    // 对比每个GRUP的大小
+    println!("\n=== GRUP大小对比 ===");
+    for (i, (group1, group2)) in plugin1.groups.iter().zip(plugin2.groups.iter()).enumerate() {
+        let label1 = String::from_utf8_lossy(&group1.label);
+        let label2 = String::from_utf8_lossy(&group2.label);
+        
+        if group1.size != group2.size {
+            println!("⚠️ GRUP {} ('{}' vs '{}'): {} vs {} (差异: {})", 
+                i, label1, label2, group1.size, group2.size, 
+                (group2.size as i64) - (group1.size as i64));
+                
+            // 详细分析这个组的差异
+            analyze_group_difference(group1, group2, i)?;
+        } else {
+            println!("✓ GRUP {} ('{}'): {} 字节 - 匹配", i, label1, group1.size);
+        }
+    }
+    
+    Ok(())
+}
+
+/// 分析组差异的详细原因
+fn analyze_group_difference(group1: &Group, group2: &Group, group_index: usize) -> Result<(), Box<dyn std::error::Error>> {
+    println!("  详细分析GRUP {}:", group_index);
+    println!("    子元素数量: {} vs {}", group1.children.len(), group2.children.len());
+    
+    if group1.children.len() != group2.children.len() {
+        println!("    ⚠️ 子元素数量不匹配！");
+        return Ok(());
+    }
+    
+    let mut total_diff = 0i64;
+    
+    for (i, (child1, child2)) in group1.children.iter().zip(group2.children.iter()).enumerate() {
+        match (child1, child2) {
+            (GroupChild::Record(r1), GroupChild::Record(r2)) => {
+                if r1.data_size != r2.data_size {
+                    let diff = (r2.data_size as i64) - (r1.data_size as i64);
+                    total_diff += diff;
+                    println!("    记录 {} ({}): {} vs {} (差异: {})", 
+                        i, r1.record_type, r1.data_size, r2.data_size, diff);
+                }
+            }
+            (GroupChild::Group(g1), GroupChild::Group(g2)) => {
+                if g1.size != g2.size {
+                    let diff = (g2.size as i64) - (g1.size as i64);
+                    total_diff += diff;
+                    println!("    子GRUP {} ('{}'): {} vs {} (差异: {})", 
+                        i, String::from_utf8_lossy(&g1.label), g1.size, g2.size, diff);
+                }
+            }
+            _ => {
+                println!("    ⚠️ 子元素 {} 类型不匹配！", i);
+            }
+        }
+    }
+    
+    let grup_diff = (group2.size as i64) - (group1.size as i64);
+    println!("    计算的总差异: {} 字节", total_diff);
+    println!("    实际GRUP差异: {} 字节", grup_diff);
+    
+    if total_diff != grup_diff {
+        println!("    ⚠️ 差异不匹配！可能存在其他问题");
     }
     
     Ok(())

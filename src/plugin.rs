@@ -280,8 +280,22 @@ impl Plugin {
         let masters = self.masters.clone();
         let plugin_name = self.get_name().to_string();
         
+        println!("开始应用翻译映射，翻译表中有 {} 个条目", translations.len());
+        
+        #[cfg(debug_assertions)]
+        {
+            println!("翻译表中的键值示例:");
+            for (i, key) in translations.keys().take(3).enumerate() {
+                println!("  {}: {}", i + 1, key);
+            }
+            if translations.len() > 3 {
+                println!("  ... 还有 {} 个键", translations.len() - 3);
+            }
+        }
+        
+        let mut applied_count = 0;
         for group in &mut self.groups {
-            apply_translations_to_group(
+            applied_count += apply_translations_to_group(
                 group, 
                 translations, 
                 &string_records, 
@@ -289,6 +303,15 @@ impl Plugin {
                 &plugin_name
             )?;
         }
+        
+        println!("成功应用了 {} 个翻译", applied_count);
+        if applied_count == 0 {
+            println!("⚠️ 警告：没有任何翻译被应用，可能原因：");
+            println!("  1. 翻译文件中的键与ESP文件中的字符串不匹配");
+            println!("  2. FormID格式不正确");
+            println!("  3. 记录类型或子记录类型不匹配");
+        }
+        
         Ok(())
     }
 
@@ -308,21 +331,60 @@ impl Plugin {
     
     /// 写入记录
     fn write_record(&self, record: &Record, output: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::datatypes::RecordFlags;
+        
         // 写入记录类型
         output.extend_from_slice(&record.record_type_bytes);
         
-        // 计算实际数据大小
-        let actual_data_size = if record.is_modified {
-            // 重新计算子记录数据大小
-            record.subrecords.iter()
-                .map(|sr| 6 + sr.data.len())  // 6字节头部 + 数据
-                .sum::<usize>() as u32
+        // 判断记录是否原本就是压缩的
+        let is_originally_compressed = record.flags & RecordFlags::COMPRESSED.bits() != 0;
+        
+        // 处理数据部分
+        let data_to_write = if record.is_modified {
+            // 如果记录被修改，重新序列化子记录
+            let mut subrecord_data = Vec::new();
+            for subrecord in &record.subrecords {
+                subrecord_data.extend_from_slice(&subrecord.record_type_bytes);
+                subrecord_data.extend_from_slice(&(subrecord.data.len() as u16).to_le_bytes());
+                subrecord_data.extend_from_slice(&subrecord.data);
+            }
+            
+            // 如果原本是压缩的，重新压缩
+            if is_originally_compressed {
+                let compressed = record.recompress_data()?;
+                #[cfg(debug_assertions)]
+                println!("🔄 重新压缩记录 {}: 解压大小 {} -> 压缩大小 {}", 
+                    record.record_type, subrecord_data.len(), compressed.len());
+                compressed
+            } else {
+                #[cfg(debug_assertions)]
+                println!("📝 修改非压缩记录 {}: 大小 {}", record.record_type, subrecord_data.len());
+                subrecord_data
+            }
         } else {
-            record.data_size
+            // 使用原始数据
+            if let Some(compressed_data) = &record.original_compressed_data {
+                #[cfg(debug_assertions)]
+                println!("📦 保持压缩记录 {}: 原始压缩大小 {} (原始data_size: {})", 
+                    record.record_type, compressed_data.len(), record.data_size);
+                compressed_data.clone()
+            } else {
+                #[cfg(debug_assertions)]
+                println!("📄 保持未压缩记录 {}: 大小 {} (原始data_size: {})", 
+                    record.record_type, record.raw_data.len(), record.data_size);
+                record.raw_data.clone()
+            }
         };
         
         // 写入数据大小
-        output.extend_from_slice(&actual_data_size.to_le_bytes());
+        let actual_size = data_to_write.len() as u32;
+        output.extend_from_slice(&actual_size.to_le_bytes());
+        
+        #[cfg(debug_assertions)]
+        if actual_size != record.data_size && !record.is_modified {
+            println!("⚠️  记录 {} 大小不匹配: 写入 {} vs 原始 {}", 
+                record.record_type, actual_size, record.data_size);
+        }
         
         // 写入其他头部字段
         output.extend_from_slice(&record.flags.to_le_bytes());
@@ -333,21 +395,7 @@ impl Plugin {
         output.extend_from_slice(&record.unknown.to_le_bytes());
         
         // 写入数据部分
-        if record.is_modified {
-            // 如果记录被修改，重新序列化子记录
-            for subrecord in &record.subrecords {
-                output.extend_from_slice(&subrecord.record_type_bytes);
-                output.extend_from_slice(&(subrecord.data.len() as u16).to_le_bytes());
-                output.extend_from_slice(&subrecord.data);
-            }
-        } else {
-            // 使用原始数据
-            if let Some(compressed_data) = &record.original_compressed_data {
-                output.extend_from_slice(compressed_data);
-            } else {
-                output.extend_from_slice(&record.raw_data);
-            }
-        }
+        output.extend_from_slice(&data_to_write);
         
         Ok(())
     }
@@ -379,8 +427,8 @@ impl Plugin {
             }
         }
         
-        // 计算并写入实际大小
-        let actual_size = (output.len() - size_pos) as u32;
+        // 计算并写入实际大小（需要包含"GRUP"的4字节）
+        let actual_size = (output.len() - size_pos + 4) as u32;
         let size_bytes = actual_size.to_le_bytes();
         output[size_pos..size_pos + 4].copy_from_slice(&size_bytes);
         
@@ -422,18 +470,19 @@ fn apply_translations_to_group(
     string_records: &HashMap<String, Vec<String>>,
     masters: &[String],
     plugin_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut count = 0;
     for child in &mut group.children {
         match child {
             GroupChild::Group(subgroup) => {
-                apply_translations_to_group(subgroup, translations, string_records, masters, plugin_name)?;
+                count += apply_translations_to_group(subgroup, translations, string_records, masters, plugin_name)?;
             }
             GroupChild::Record(record) => {
-                apply_translations_to_record(record, translations, string_records, masters, plugin_name)?;
+                count += apply_translations_to_record(record, translations, string_records, masters, plugin_name)?;
             }
         }
     }
-    Ok(())
+    Ok(count)
 }
 
 /// 对记录应用翻译
@@ -443,35 +492,48 @@ fn apply_translations_to_record(
     string_records: &HashMap<String, Vec<String>>,
     masters: &[String],
     plugin_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<usize, Box<dyn std::error::Error>> {
     let string_types = match string_records.get(&record.record_type) {
         Some(types) => types,
-        None => return Ok(()),
+        None => return Ok(0),
     };
     
     let editor_id = record.get_editor_id();
     let form_id_str = format_form_id_helper(record.form_id, masters, plugin_name);
     
     let mut modified = false;
+    let mut applied_count = 0;
+    
     for subrecord in &mut record.subrecords {
         if string_types.contains(&subrecord.record_type) {
-            let key = format!("{}|{}|{}|{}", 
+            let string_type = format!("{} {}", record.record_type, subrecord.record_type);
+            let key = format!("{}|{}|{}", 
                 editor_id.as_deref().unwrap_or(""),
                 form_id_str,
-                record.record_type,
-                subrecord.record_type
+                string_type
             );
             
-                         if let Some(translation) = translations.get(&key) {
-                 if !translation.original_text.is_empty() {
-                     
-                     #[cfg(debug_assertions)]
-                     println!("应用翻译: {}", translation.original_text);
-                     
-                     let encoded_data = encode_string_with_encoding(&translation.original_text, &translation.encoding)?;
+            #[cfg(debug_assertions)]
+            println!("尝试匹配键: {}", key);
+            
+            if let Some(translation) = translations.get(&key) {
+                if !translation.original_text.is_empty() {
+                    
+                    println!("✓ 成功应用翻译: [{}] {} -> \"{}\"", 
+                        translation.form_id,
+                        translation.string_type,
+                        if translation.original_text.chars().count() > 50 {
+                            format!("{}...", translation.original_text.chars().take(50).collect::<String>())
+                        } else {
+                            translation.original_text.clone()
+                        }
+                    );
+                    
+                    let encoded_data = encode_string_with_encoding(&translation.original_text, &translation.encoding)?;
                     subrecord.data = encoded_data;
                     subrecord.size = subrecord.data.len() as u16;
                     modified = true;
+                    applied_count += 1;
                 }
             }
         }
@@ -481,7 +543,7 @@ fn apply_translations_to_record(
         record.mark_modified();
     }
     
-    Ok(())
+    Ok(applied_count)
 }
 
 /// 格式化FormID辅助函数
