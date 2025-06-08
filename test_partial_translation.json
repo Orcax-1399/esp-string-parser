@@ -1,0 +1,12 @@
+[
+  {
+    "editor_id": "TestEditorID",
+    "form_id": "12345678|TestMod.esp",
+    "string_type": "NPC_ FULL",
+    "original_text": "测试翻译文本1",
+    "index": null,
+    "record_type": "NPC_",
+    "subrecord_type": "FULL",
+    "encoding": "utf-8"
+  }
+] 

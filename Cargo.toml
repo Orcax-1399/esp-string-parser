@@ -1,6 +1,16 @@
 [package]
-name = "esp-string-parser"
+name = "esp_extractor"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+byteorder = "1.4"          # 字节序处理
+flate2 = "1.0"             # zlib解压缩
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"         # JSON处理
+encoding_rs = "0.8"        # 多编码支持
+clap = { version = "4.0", features = ["derive"] }  # 命令行参数
+anyhow = "1.0"             # 错误处理
+thiserror = "1.0"          # 自定义错误
+bitflags = "2.0"           # 标志位处理
+chrono = "0.4"             # 时间处理
