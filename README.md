@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/esp_extractor/badge.svg)](https://docs.rs/esp_extractor)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
-一个用于处理Bethesda游戏引擎（ESP/ESM/ESL）文件的Rust库。支持字符串提取、翻译应用和文件结构调试。
+一个用于处理Bethesda游戏引擎（ESP/ESM/ESL）文件和字符串文件的Rust库。支持字符串提取、翻译应用、字符串文件解析和文件结构调试。
 
 ## 📦 安装
 
@@ -30,6 +30,20 @@ git clone https://github.com/yourusername/esp-string-parser.git
 cd esp-string-parser
 cargo build --release --features cli
 ```
+
+## 🎯 主要功能
+
+### ESP/ESM/ESL文件处理
+- 字符串提取和翻译应用
+- 文件结构分析和调试
+- 压缩记录支持
+
+### 字符串文件解析
+- 支持 `.STRINGS`、`.ILSTRINGS`、`.DLSTRINGS` 文件
+- 自动检测文件类型和编码
+- 转换为JSON格式便于处理
+
+详细的字符串文件使用说明请参考：[STRING_FILE_USAGE.md](STRING_FILE_USAGE.md)
 
 ## 🚀 完整翻译工作流
 
@@ -112,13 +126,18 @@ esp_extractor -i "Data/MyMod.esp" --apply-jsonstr '[...]'
 
 ## ⚙️ 命令行选项
 
-### 提取模式
-- `-i, --input <FILE>`: 输入ESP/ESM/ESL文件路径 (必需)
-- `-o, --output <FILE>`: 输出JSON文件路径 (可选)
+### 通用选项
+- `-i, --input <FILE>`: 输入文件路径（ESP/ESM/ESL或字符串文件）(必需)
+- `-o, --output <FILE>`: 输出文件路径 (可选)
+- `--stats`: 显示文件统计信息
+- `--quiet`: 静默模式
+
+### ESP文件提取模式
 - `--include-localized`: 包含本地化字符串(显示为StringID)
 - `--unfiltered`: 包含所有字符串，跳过智能过滤
-- `--stats`: 仅显示插件统计信息
-- `--quiet`: 静默模式
+
+### 字符串文件解析模式
+- `--parse-strings <FILE>`: 明确指定解析字符串文件（也可以通过文件扩展名自动检测）
 
 ### 翻译应用模式
 - `--apply-file <JSON_FILE>`: 从JSON文件应用翻译到ESP文件
@@ -131,13 +150,25 @@ esp_extractor -i "Data/MyMod.esp" --apply-jsonstr '[...]'
 
 ## 📋 使用示例
 
-### 基本提取
+### ESP文件字符串提取
 ```bash
 # 提取字符串到JSON文件
 esp_extractor -i "Data/MyMod.esp"
 
 # 指定输出文件名
 esp_extractor -i "Data/MyMod.esp" -o "translations.json"
+```
+
+### 字符串文件解析
+```bash
+# 解析字符串文件（自动检测）
+esp_extractor -i "Dragonborn_english.ILSTRINGS"
+
+# 明确指定解析字符串文件
+esp_extractor --parse-strings "Dragonborn_english.ILSTRINGS" -o "dragonborn_strings.json"
+
+# 查看字符串文件统计信息
+esp_extractor -i "Dragonborn_english.ILSTRINGS" --stats
 ```
 
 ### 显示统计信息

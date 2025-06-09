@@ -1,5 +1,5 @@
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::{Read, Cursor};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Read, Write, Cursor};
 use encoding_rs;
 
 // 基础整数类型读取函数
@@ -17,6 +17,23 @@ pub fn read_u32(cursor: &mut Cursor<&[u8]>) -> Result<u32, std::io::Error> {
 
 pub fn read_i32(cursor: &mut Cursor<&[u8]>) -> Result<i32, std::io::Error> {
     cursor.read_i32::<LittleEndian>()
+}
+
+// 基础整数类型写入函数
+pub fn write_u8(writer: &mut dyn Write, value: u8) -> Result<(), std::io::Error> {
+    writer.write_u8(value)
+}
+
+pub fn write_u16(writer: &mut dyn Write, value: u16) -> Result<(), std::io::Error> {
+    writer.write_u16::<LittleEndian>(value)
+}
+
+pub fn write_u32(writer: &mut dyn Write, value: u32) -> Result<(), std::io::Error> {
+    writer.write_u32::<LittleEndian>(value)
+}
+
+pub fn write_i32(writer: &mut dyn Write, value: i32) -> Result<(), std::io::Error> {
+    writer.write_i32::<LittleEndian>(value)
 }
 
 // 支持的编码

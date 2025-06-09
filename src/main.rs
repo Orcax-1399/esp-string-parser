@@ -2,6 +2,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS};
+use esp_extractor::StringFile;
 use esp_extractor::group::{Group, GroupChild};
 
 #[cfg(debug_assertions)]
@@ -10,10 +11,10 @@ use esp_extractor::EspDebugger;
 #[cfg(feature = "cli")]
 #[derive(Parser)]
 #[command(name = "esp_extractor")]
-#[command(about = "从ESP/ESM/ESL文件中提取可翻译字符串")]
+#[command(about = "从ESP/ESM/ESL文件中提取可翻译字符串，或解析Bethesda字符串文件")]
 #[command(version = "0.2.0")]
 struct Cli {
-    /// 输入ESP/ESM/ESL文件路径
+    /// 输入文件路径（ESP/ESM/ESL或字符串文件）
     #[arg(short, long)]
     input: PathBuf,
     
@@ -56,6 +57,10 @@ struct Cli {
     /// 对比两个ESP文件的结构差异
     #[arg(long)]
     compare_files: Option<PathBuf>,
+    
+    /// 字符串文件操作：解析字符串文件并输出JSON
+    #[arg(long)]
+    parse_strings: Option<PathBuf>,
 }
 
 #[cfg(feature = "cli")]
@@ -74,6 +79,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return handle_file_comparison(&cli, compare_file);
     }
     
+    if let Some(string_file) = &cli.parse_strings {
+        return handle_string_file_parsing(&cli, string_file);
+    }
+    
     if cli.apply_partial_stdin {
         return handle_translation_stdin(&cli);
     }
@@ -86,8 +95,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return handle_translation_jsonstr(&cli, translation_json);
     }
     
-    // 默认模式：字符串提取
-    handle_string_extraction(&cli)
+    // 默认模式：根据文件类型自动选择处理方式
+    let extension = cli.input.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+    
+    let string_extensions = ["strings", "ilstrings", "dlstrings"];
+    if string_extensions.iter().any(|&ext| Some(ext) == extension.as_deref()) {
+        // 字符串文件：解析并输出JSON
+        handle_string_file_parsing(&cli, &cli.input)
+    } else {
+        // ESP文件：字符串提取
+        handle_string_extraction(&cli)
+    }
 }
 
 /// 验证输入文件
@@ -100,8 +120,13 @@ fn validate_input(input: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_lowercase());
     
-    if !SUPPORTED_EXTENSIONS.iter().any(|&ext| Some(ext) == extension.as_deref()) {
-        return Err("输入文件必须是ESP、ESM或ESL文件".into());
+    // 支持ESP/ESM/ESL文件和字符串文件
+    let string_extensions = ["strings", "ilstrings", "dlstrings"];
+    let is_esp_file = SUPPORTED_EXTENSIONS.iter().any(|&ext| Some(ext) == extension.as_deref());
+    let is_string_file = string_extensions.iter().any(|&ext| Some(ext) == extension.as_deref());
+    
+    if !is_esp_file && !is_string_file {
+        return Err("输入文件必须是ESP、ESM、ESL或字符串文件（STRINGS、ILSTRINGS、DLSTRINGS）".into());
     }
     
     Ok(())
@@ -501,6 +526,66 @@ fn analyze_group_difference(group1: &Group, group2: &Group, group_index: usize) 
     
     Ok(())
 }
+
+/// 处理字符串文件解析
+fn handle_string_file_parsing(cli: &Cli, string_file_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !string_file_path.exists() {
+        return Err(format!("字符串文件不存在: {:?}", string_file_path).into());
+    }
+    
+    if !cli.quiet {
+        println!("正在解析字符串文件: {:?}", string_file_path);
+    }
+    
+    let string_file = StringFile::new(string_file_path.clone())?;
+    
+    if cli.stats {
+        println!("{}", string_file.get_stats());
+        return Ok(());
+    }
+    
+    // 将字符串转换为JSON格式输出
+    let entries: Vec<_> = string_file.entries.values().collect();
+    let json_output = serde_json::to_string_pretty(&entries)
+        .map_err(|e| format!("序列化JSON失败: {}", e))?;
+    
+    let output_path = cli.output.as_ref()
+        .map(|p| p.clone())
+        .unwrap_or_else(|| string_file_path.with_extension("json"));
+    
+    std::fs::write(&output_path, &json_output)
+        .map_err(|e| format!("写入文件失败: {}", e))?;
+    
+    if !cli.quiet {
+        println!("解析完成:");
+        println!("  插件名: {}", string_file.plugin_name);
+        println!("  语言: {}", string_file.language);
+        println!("  文件类型: {:?}", string_file.file_type);
+        println!("  字符串数量: {}", string_file.count());
+        println!("  结果已写入: {:?}", output_path);
+        
+        // 显示前几个字符串样例
+        let sample_entries: Vec<_> = string_file.entries.values().take(3).collect();
+        if !sample_entries.is_empty() {
+            println!("\n样例字符串:");
+            for (i, entry) in sample_entries.iter().enumerate() {
+                println!("{}. ID {}: \"{}\"", 
+                    i + 1, 
+                    entry.id,
+                    if entry.content.chars().count() > 50 {
+                        format!("{}...", entry.content.chars().take(50).collect::<String>())
+                    } else {
+                        entry.content.clone()
+                    }
+                );
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+
 
 #[cfg(not(feature = "cli"))]
 fn main() {

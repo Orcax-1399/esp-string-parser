@@ -45,6 +45,7 @@ pub mod group;
 pub mod plugin;
 pub mod subrecord;
 pub mod string_types;
+pub mod string_file;
 pub mod utils;
 
 // 调试模块（仅在debug模式下可用）
@@ -59,6 +60,7 @@ pub use record::Record;
 pub use group::{Group, GroupChild, GroupType};
 pub use subrecord::Subrecord;
 pub use string_types::ExtractedString;
+pub use string_file::{StringFile, StringFileType, StringEntry, StringFileSet, StringFileStats};
 
 // 数据类型和工具
 pub use datatypes::{RecordFlags, RawString};
