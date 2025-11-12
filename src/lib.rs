@@ -103,7 +103,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// # }
 /// ```
 pub fn extract_strings_from_file(file_path: std::path::PathBuf) -> std::result::Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
-    let plugin = Plugin::new(file_path)?;
+    let plugin = Plugin::new(file_path, None)?; // 使用默认语言
     Ok(plugin.extract_strings())
 }
 
@@ -136,7 +136,7 @@ pub fn apply_translations_to_file(
     output_path: std::path::PathBuf,
     translations: Vec<ExtractedString>
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    Plugin::apply_translations(input_path, output_path, translations)
+    Plugin::apply_translations(input_path, output_path, translations, None) // 使用默认语言
 }
 
 /// 验证文件是否为支持的ESP格式

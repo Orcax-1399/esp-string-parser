@@ -180,8 +180,8 @@ impl EspDebugger {
         rebuilt_path: PathBuf,
         output_path: PathBuf
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let original = Plugin::new(original_path.clone())?;
-        let rebuilt = Plugin::new(rebuilt_path.clone())?;
+        let original = Plugin::new(original_path.clone(), None)?;
+        let rebuilt = Plugin::new(rebuilt_path.clone(), None)?;
         
         let mut output = File::create(output_path)?;
         

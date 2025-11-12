@@ -2,6 +2,7 @@ use crate::datatypes::{read_u32, RawString};
 use crate::record::Record;
 use crate::group::{Group, GroupChild};
 use crate::string_types::ExtractedString;
+use crate::string_file::{StringFileSet, StringFileType};
 use crate::utils::{is_valid_string, EspError};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,6 +21,10 @@ pub struct Plugin {
     pub masters: Vec<String>,
     /// 字符串记录定义
     pub string_records: HashMap<String, Vec<String>>,
+    /// STRING文件集合（仅本地化插件有值）
+    string_files: Option<StringFileSet>,
+    /// 语言标识（用于STRING文件查找）
+    language: String,
 }
 
 /// 修改信息结构
@@ -29,41 +34,112 @@ impl Plugin {
         input_path: PathBuf,
         output_path: PathBuf,
         translations: Vec<ExtractedString>,
+        language: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(debug_assertions)]
         let backup_path = crate::utils::create_backup(&input_path)?;
         #[cfg(not(debug_assertions))]
         let _backup_path = crate::utils::create_backup(&input_path)?;
-        
+
         #[cfg(debug_assertions)]
         println!("已创建备份文件: {:?}", backup_path);
-        
-        let mut plugin = Self::new(input_path)?;
-        let translation_map = Self::create_translation_map(translations);
-        plugin.apply_translation_map(&translation_map)?;
-        plugin.write_to_file(output_path)?;
-        
+
+        let mut plugin = Self::new(input_path, language)?;
+
+        // 确定输出目录：如果output_path是文件，使用父目录；如果是目录，直接使用
+        let output_dir = if output_path.is_dir() {
+            Some(output_path.as_path())
+        } else {
+            output_path.parent()
+        };
+
+        // 使用统一的翻译应用接口（自动判断本地化/非本地化）
+        plugin.apply_translations_unified(translations, output_dir)?;
+
         Ok(())
     }
 
     /// 创建新的插件实例
-    pub fn new(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    ///
+    /// # 参数
+    /// * `path` - ESP/ESM/ESL文件路径
+    /// * `language` - 语言标识（用于加载STRING文件），默认为"english"
+    ///
+    /// # 自动加载STRING文件
+    /// 如果插件设置了LOCALIZED标志，会自动尝试加载同目录下的STRING文件
+    pub fn new(path: PathBuf, language: Option<&str>) -> Result<Self, Box<dyn std::error::Error>> {
+        let language = language.unwrap_or("english").to_string();
         let string_records = Self::load_string_records()?;
         let data = std::fs::read(&path)?;
         let mut cursor = Cursor::new(&data[..]);
-        
+
         let header = Record::parse(&mut cursor)?;
         Self::validate_esp_file(&header)?;
-        
+
         let masters = Self::extract_masters(&header);
         let groups = Self::parse_groups(&mut cursor, &data)?;
-        
+
+        // 检查是否为本地化插件
+        let is_localized = header.flags & 0x00000080 != 0;
+
+        // 自动加载STRING文件（如果是本地化插件）
+        let string_files = if is_localized {
+            let plugin_dir = path.parent().ok_or("无法获取插件目录")?;
+            let plugin_name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or("无法获取插件名称")?;
+
+            // 尝试多个可能的STRING文件位置
+            let search_dirs = vec![
+                plugin_dir.to_path_buf(),                    // 同目录
+                plugin_dir.join("Strings"),                  // Strings子目录（常见于开发环境）
+                plugin_dir.join("strings"),                  // strings子目录（小写）
+            ];
+
+            let mut loaded_set: Option<StringFileSet> = None;
+
+            for dir in search_dirs {
+                if !dir.exists() {
+                    continue;
+                }
+
+                match StringFileSet::load_from_directory(&dir, plugin_name, &language) {
+                    Ok(set) if set.files.len() > 0 => {
+                        #[cfg(debug_assertions)]
+                        println!("已加载STRING文件: {} 个文件类型（从 {:?}）", set.files.len(), dir);
+                        loaded_set = Some(set);
+                        break;
+                    }
+                    Ok(_) => {
+                        // 找到目录但没有STRING文件，继续搜索
+                        #[cfg(debug_assertions)]
+                        eprintln!("提示: {:?} 目录下未找到STRING文件", dir);
+                    }
+                    Err(e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("警告: 无法从 {:?} 加载STRING文件: {}", dir, e);
+                    }
+                }
+            }
+
+            if loaded_set.is_none() {
+                #[cfg(debug_assertions)]
+                eprintln!("警告: 本地化插件但未找到任何STRING文件");
+            }
+
+            loaded_set
+        } else {
+            None
+        };
+
         Ok(Plugin {
             path,
             header,
             groups,
             masters,
             string_records,
+            string_files,
+            language,
         })
     }
     
@@ -106,7 +182,32 @@ impl Plugin {
             .map(|sr| RawString::parse_zstring(&sr.data).content)
             .collect()
     }
-    
+
+    /// 根据记录类型和子记录类型确定应该使用哪个STRING文件类型
+    ///
+    /// # 映射规则
+    /// - 对话记录 (DIAL/INFO) 或对话子记录 (NAM1/RNAM) → DLSTRINGS
+    /// - 界面子记录 (ITXT/CTDA) → ILSTRINGS
+    /// - 其他所有字符串子记录 (FULL/DESC/CNAM等) → STRINGS (默认)
+    fn determine_string_file_type(record_type: &str, subrecord_type: &str) -> StringFileType {
+        // 对话相关 → DLSTRINGS
+        if record_type == "DIAL" || record_type == "INFO" {
+            return StringFileType::DLSTRINGS;
+        }
+
+        if matches!(subrecord_type, "NAM1" | "RNAM") {
+            return StringFileType::DLSTRINGS;
+        }
+
+        // 界面相关 → ILSTRINGS
+        if matches!(subrecord_type, "ITXT" | "CTDA") {
+            return StringFileType::ILSTRINGS;
+        }
+
+        // 默认 → STRINGS
+        StringFileType::STRINGS
+    }
+
     /// 提取所有字符串
     pub fn extract_strings(&self) -> Vec<ExtractedString> {
         let mut strings = Vec::new();
@@ -159,36 +260,66 @@ impl Plugin {
     
     /// 从子记录中提取字符串
     fn extract_string_from_subrecord(
-        &self, 
-        subrecord: &crate::subrecord::Subrecord, 
+        &self,
+        subrecord: &crate::subrecord::Subrecord,
         editor_id: &Option<String>,
         form_id_str: &str,
         record_type: &str
     ) -> Option<ExtractedString> {
-        let raw_string = if self.header.flags & 0x00000080 != 0 {
-            // 本地化插件：数据是字符串ID
+        let raw_string = if self.is_localized() {
+            // 本地化插件：数据是字符串ID（前4字节）
             let mut cursor = Cursor::new(&subrecord.data[..]);
-            let string_id = read_u32(&mut cursor).unwrap_or(0);
-            RawString {
-                content: format!("StringID_{}", string_id),
-                encoding: "ascii".to_string(),
+            let string_id = match read_u32(&mut cursor) {
+                Ok(id) => id,
+                Err(_) => return None,
+            };
+
+            // 确定应该从哪个STRING文件查找
+            let file_type = Self::determine_string_file_type(record_type, &subrecord.record_type);
+
+            // 从STRING文件查找实际文本
+            if let Some(ref string_files) = self.string_files {
+                if let Some(entry) = string_files.get_string_by_type(file_type, string_id) {
+                    RawString {
+                        content: entry.content.clone(),
+                        encoding: "utf-8".to_string(),
+                    }
+                } else {
+                    // STRING文件中未找到，返回占位符
+                    #[cfg(debug_assertions)]
+                    eprintln!("警告: StringID {} 在 {:?} 文件中未找到", string_id, file_type);
+
+                    RawString {
+                        content: format!("StringID_{}_{:?}", string_id, file_type),
+                        encoding: "ascii".to_string(),
+                    }
+                }
+            } else {
+                // 没有加载STRING文件
+                #[cfg(debug_assertions)]
+                eprintln!("警告: 本地化插件但未加载STRING文件，StringID={}", string_id);
+
+                RawString {
+                    content: format!("StringID_{}", string_id),
+                    encoding: "ascii".to_string(),
+                }
             }
         } else {
             // 普通插件：直接解析字符串
             RawString::parse_zstring(&subrecord.data)
         };
-        
-                        if is_valid_string(&raw_string.content) {
-                    Some(ExtractedString::new(
-                        editor_id.clone(),
-                        form_id_str.to_string(),
-                        record_type.to_string(),
-                        subrecord.record_type.clone(),
-                        raw_string.content,
-                    ))
-                } else {
-                    None
-                }
+
+        if is_valid_string(&raw_string.content) {
+            Some(ExtractedString::new(
+                editor_id.clone(),
+                form_id_str.to_string(),
+                record_type.to_string(),
+                subrecord.record_type.clone(),
+                raw_string.content,
+            ))
+        } else {
+            None
+        }
     }
     
     /// 格式化FormID
@@ -272,7 +403,186 @@ impl Plugin {
             GroupChild::Record(_) => 0,
         }).sum()
     }
-    
+
+    /// 统一应用翻译（自动判断本地化/非本地化插件）
+    ///
+    /// # 参数
+    /// * `translations` - 翻译列表
+    /// * `output_dir` - 可选输出目录，如果为None则覆盖原文件
+    ///
+    /// # 行为
+    /// - 本地化插件：写入STRING文件到 output_dir/strings/ 或原目录
+    /// - 普通插件：写入ESP文件到 output_dir/xxx.esp 或原路径
+    pub fn apply_translations_unified(
+        &mut self,
+        translations: Vec<ExtractedString>,
+        output_dir: Option<&std::path::Path>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.is_localized() {
+            // 本地化插件：应用翻译到STRING文件
+            self.apply_translations_to_string_files(translations, output_dir)
+        } else {
+            // 普通插件：应用翻译到ESP文件
+            self.apply_translations_to_esp(translations, output_dir)
+        }
+    }
+
+    /// 应用翻译到STRING文件（本地化插件）
+    fn apply_translations_to_string_files(
+        &mut self,
+        translations: Vec<ExtractedString>,
+        output_dir: Option<&std::path::Path>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // 第一步：遍历ESP，建立 UniqueKey -> (StringFileType, StringID) 映射
+        // 注意：先不借用string_files，避免借用冲突
+        let mut string_id_map: HashMap<String, (StringFileType, u32)> = HashMap::new();
+
+        for group in &self.groups {
+            self.build_string_id_map_from_group(group, &mut string_id_map)?;
+        }
+
+        #[cfg(debug_assertions)]
+        println!("从ESP文件中提取了 {} 个StringID映射", string_id_map.len());
+
+        // 第二步：获取string_files的可变引用并更新
+        let string_files = self.string_files.as_mut()
+            .ok_or("本地化插件但未加载STRING文件")?;
+
+        let mut applied_count = 0;
+        for trans in translations {
+            let key = trans.get_unique_key();
+            if let Some((file_type, string_id)) = string_id_map.get(&key) {
+                // 使用 get_text_to_apply() 来获取翻译文本（优先）或原文
+                let text_to_apply = trans.get_text_to_apply().to_string();
+                match string_files.update_string(*file_type, *string_id, text_to_apply) {
+                    Ok(_) => applied_count += 1,
+                    Err(e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("警告: 无法更新StringID {}: {}", string_id, e);
+                    }
+                }
+            } else {
+                #[cfg(debug_assertions)]
+                eprintln!("警告: 未找到翻译键对应的StringID: {}", key);
+            }
+        }
+
+        println!("成功应用了 {} 个翻译到STRING文件", applied_count);
+
+        // 第三步：写入STRING文件
+        let output_path = if let Some(dir) = output_dir {
+            // 输出到指定目录：output_dir/strings/
+            dir.join("strings")
+        } else {
+            // 覆盖原文件
+            self.path.parent().unwrap().to_path_buf()
+        };
+
+        std::fs::create_dir_all(&output_path)?;
+
+        #[cfg(debug_assertions)]
+        println!("准备写入STRING文件到: {:?}", output_path);
+
+        string_files.write_all(&output_path)?;
+
+        println!("STRING文件已成功写入");
+
+        Ok(())
+    }
+
+    /// 从组中构建StringID映射
+    fn build_string_id_map_from_group(
+        &self,
+        group: &Group,
+        map: &mut HashMap<String, (StringFileType, u32)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for child in &group.children {
+            match child {
+                GroupChild::Group(subgroup) => {
+                    self.build_string_id_map_from_group(subgroup, map)?;
+                }
+                GroupChild::Record(record) => {
+                    self.build_string_id_map_from_record(record, map)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 从记录中构建StringID映射
+    fn build_string_id_map_from_record(
+        &self,
+        record: &crate::record::Record,
+        map: &mut HashMap<String, (StringFileType, u32)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // 获取编辑器ID
+        let editor_id = record.get_editor_id();
+        let form_id_str = self.format_form_id(record.form_id);
+
+        // 获取支持的字符串子记录类型
+        let valid_subrecord_types = self.string_records.get(&record.record_type);
+
+        for subrecord in &record.subrecords {
+            if let Some(types) = valid_subrecord_types {
+                if types.contains(&subrecord.record_type) {
+                    // 读取StringID
+                    let mut cursor = Cursor::new(&subrecord.data[..]);
+                    if let Ok(string_id) = read_u32(&mut cursor) {
+                        // 确定文件类型
+                        let file_type = Self::determine_string_file_type(
+                            &record.record_type,
+                            &subrecord.record_type,
+                        );
+
+                        // 构建唯一键
+                        let key = format!(
+                            "{}|{}|{} {}",
+                            editor_id.as_deref().unwrap_or(""),
+                            form_id_str,
+                            record.record_type,
+                            subrecord.record_type
+                        );
+
+                        map.insert(key, (file_type, string_id));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 应用翻译到ESP文件（普通插件）
+    fn apply_translations_to_esp(
+        &mut self,
+        translations: Vec<ExtractedString>,
+        output_dir: Option<&std::path::Path>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // 使用现有的翻译映射逻辑
+        let translation_map = Self::create_translation_map(translations);
+        self.apply_translation_map(&translation_map)?;
+
+        // 写入文件
+        let output_path = if let Some(dir) = output_dir {
+            // 输出到指定目录：output_dir/xxx.esp
+            dir.join(self.path.file_name().unwrap())
+        } else {
+            // 覆盖原文件
+            self.path.clone()
+        };
+
+        std::fs::create_dir_all(output_path.parent().unwrap())?;
+
+        #[cfg(debug_assertions)]
+        println!("准备写入ESP文件到: {:?}", output_path);
+
+        self.write_to_file(output_path)?;
+
+        println!("ESP文件已成功写入");
+
+        Ok(())
+    }
+
     /// 应用翻译映射
     fn apply_translation_map(&mut self, translations: &HashMap<String, ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
         let string_records = self.string_records.clone();
@@ -516,20 +826,21 @@ fn apply_translations_to_record(
             println!("尝试匹配键: {}", key);
             
             if let Some(translation) = translations.get(&key) {
-                if !translation.original_text.is_empty() {
-                    
+                let text_to_apply = translation.get_text_to_apply();
+                if !text_to_apply.is_empty() {
+
                     #[cfg(debug_assertions)]
-                    println!("✓ 成功应用翻译: [{}] {} -> \"{}\"", 
+                    println!("✓ 成功应用翻译: [{}] {} -> \"{}\"",
                         translation.form_id,
                         translation.get_string_type(),
-                        if translation.original_text.chars().count() > 50 {
-                            format!("{}...", translation.original_text.chars().take(50).collect::<String>())
+                        if text_to_apply.chars().count() > 50 {
+                            format!("{}...", text_to_apply.chars().take(50).collect::<String>())
                         } else {
-                            translation.original_text.clone()
+                            text_to_apply.to_string()
                         }
                     );
-                    
-                    let encoded_data = encode_string_with_encoding(&translation.original_text, "utf-8")?;
+
+                    let encoded_data = encode_string_with_encoding(text_to_apply, "utf-8")?;
                     subrecord.data = encoded_data;
                     subrecord.size = subrecord.data.len() as u16;
                     modified = true;

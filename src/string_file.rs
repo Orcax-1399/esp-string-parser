@@ -486,19 +486,56 @@ impl StringFileSet {
     }
     
     /// 加载指定目录下的所有字符串文件
+    ///
+    /// 支持大小写不敏感的文件名匹配，会尝试以下变体：
+    /// - 原始名称
+    /// - 全小写
+    /// - 全大写
     pub fn load_from_directory(directory: &Path, plugin_name: &str, language: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut set = StringFileSet::new(plugin_name.to_string(), language.to_string());
-        
+
         for file_type in [StringFileType::STRINGS, StringFileType::ILSTRINGS, StringFileType::DLSTRINGS] {
-            let filename = format!("{}_{}.{}", plugin_name, language, file_type.to_extension());
-            let filepath = directory.join(filename);
-            
-            if filepath.exists() {
-                let string_file = StringFile::new(filepath)?;
-                set.files.insert(file_type, string_file);
+            // 尝试多种文件名变体（支持大小写不敏感）
+            let name_variants = vec![
+                plugin_name.to_string(),                // 原始名称
+                plugin_name.to_lowercase(),             // 全小写
+                plugin_name.to_uppercase(),             // 全大写
+            ];
+
+            let mut found = false;
+            for name_variant in name_variants {
+                let filename = format!("{}_{}.{}", name_variant, language, file_type.to_extension());
+                let filepath = directory.join(&filename);
+
+                if filepath.exists() {
+                    let string_file = StringFile::new(filepath)?;
+                    set.files.insert(file_type, string_file);
+                    found = true;
+                    break;
+                }
+
+                // 也尝试扩展名小写的版本
+                let filename_lower_ext = format!("{}_{}.{}",
+                    name_variant,
+                    language,
+                    file_type.to_extension().to_lowercase()
+                );
+                let filepath_lower = directory.join(&filename_lower_ext);
+
+                if filepath_lower.exists() {
+                    let string_file = StringFile::new(filepath_lower)?;
+                    set.files.insert(file_type, string_file);
+                    found = true;
+                    break;
+                }
+            }
+
+            #[cfg(debug_assertions)]
+            if !found {
+                eprintln!("提示: 未找到 {:?} 文件（尝试了多种大小写变体）", file_type);
             }
         }
-        
+
         Ok(set)
     }
     

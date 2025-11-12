@@ -7,8 +7,11 @@ pub struct ExtractedString {
     pub editor_id: Option<String>,
     /// 完整FormID (包含主文件)
     pub form_id: String,
-    /// 原始文本（提取时为原文，导入时为翻译文本）
+    /// 原始文本
     pub original_text: String,
+    /// 翻译文本（可选，应用翻译时使用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translated_text: Option<String>,
     /// 记录类型
     pub record_type: String,
     /// 子记录类型
@@ -28,9 +31,15 @@ impl ExtractedString {
             editor_id,
             form_id,
             original_text,
+            translated_text: None,
             record_type,
             subrecord_type,
         }
+    }
+
+    /// 获取要应用的文本（优先使用翻译文本，否则使用原文）
+    pub fn get_text_to_apply(&self) -> &str {
+        self.translated_text.as_deref().unwrap_or(&self.original_text)
     }
     
     /// 获取字符串类型（动态计算）

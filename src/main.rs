@@ -247,7 +247,7 @@ fn apply_translations(cli: &Cli, translations: Vec<ExtractedString>) -> Result<(
     }
     
     let output_path = get_apply_output_path(cli);
-    Plugin::apply_translations(cli.input.clone(), output_path.clone(), translations)
+    Plugin::apply_translations(cli.input.clone(), output_path.clone(), translations, None)
         .map_err(|e| format!("应用翻译失败: {}", e))?;
     
     if !cli.quiet {
@@ -264,7 +264,7 @@ fn handle_string_extraction(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
         println!("正在解析插件: {:?}", cli.input);
     }
     
-    let plugin = Plugin::new(cli.input.clone())
+    let plugin = Plugin::new(cli.input.clone(), None)
         .map_err(|e| format!("解析插件失败: {}", e))?;
     
     if cli.stats {
@@ -355,7 +355,7 @@ fn get_apply_output_path(cli: &Cli) -> PathBuf {
 
 /// 测试文件重建功能
 fn test_rebuild_file(input_path: PathBuf, output_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = Plugin::new(input_path.clone())?;
+    let plugin = Plugin::new(input_path.clone(), None)?;
     
     #[cfg(debug_assertions)]
     {
@@ -386,7 +386,7 @@ fn generate_debug_info(plugin: &Plugin, input_path: &PathBuf, output_path: &Path
     
     // 解析重建文件并生成dump
     plugin.write_to_file(output_path.clone())?;
-    let rebuilt_plugin = Plugin::new(output_path.clone())?;
+    let rebuilt_plugin = Plugin::new(output_path.clone(), None)?;
     
     let rebuilt_dump_path = output_path.with_extension("rebuilt.dump");
     println!("生成重建文件结构dump: {:?}", rebuilt_dump_path);
@@ -447,8 +447,8 @@ fn handle_file_comparison(cli: &Cli, compare_file: &PathBuf) -> Result<(), Box<d
         println!("  文件2: {:?}", compare_file);
     }
     
-    let plugin1 = Plugin::new(cli.input.clone())?;
-    let plugin2 = Plugin::new(compare_file.clone())?;
+    let plugin1 = Plugin::new(cli.input.clone(), None)?;
+    let plugin2 = Plugin::new(compare_file.clone(), None)?;
     
     // 对比基本信息
     println!("\n=== 基本信息对比 ===");
