@@ -4,17 +4,28 @@
 [![Documentation](https://docs.rs/esp_extractor/badge.svg)](https://docs.rs/esp_extractor)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
-一个用于处理Bethesda游戏引擎（ESP/ESM/ESL）文件和字符串文件的Rust库。支持字符串提取、翻译应用、字符串文件解析和文件结构调试。
+一个用于处理Bethesda游戏引擎（ESP/ESM/ESL）文件和字符串文件的 **现代化 Rust 库**。
+
+**v0.4.0 重大更新** 🎉 引入了全新的架构设计，遵循 SOLID 原则，提供更灵活、更易用的 API。
+
+## ✨ 核心特性
+
+- 🏗️ **分层架构** - IO 抽象层 + 编辑器层，职责清晰
+- 🎯 **智能加载** - 自动检测本地化插件，按需加载 STRING 文件
+- 📝 **有状态编辑** - 支持批量修改、延迟保存、撤销/重做
+- 🔄 **变更追踪** - 完整记录所有修改操作
+- 🧪 **高可测试性** - 支持依赖注入和 mock 测试
+- 📖 **完整文档** - 详尽的 API 文档和使用指南
 
 ## 📦 安装
 
-### 作为库使用
+### 作为库使用（推荐）
 
 将以下内容添加到你的 `Cargo.toml` 文件中：
 
 ```toml
 [dependencies]
-esp_extractor = "0.2.0"
+esp_extractor = "0.4.0"
 ```
 
 ### 作为命令行工具
@@ -337,6 +348,73 @@ cat selected_translations.json | esp_extractor -i "MyMod.esp" --apply-partial-st
 - **ESM** (Elder Scrolls Master)
 - **ESL** (Elder Scrolls Light)
 
+## 💻 库 API 使用
+
+### 快速开始（推荐方式）⭐
+
+使用 `LoadedPlugin::load_auto()` 智能自动加载插件：
+
+```rust
+use esp_extractor::LoadedPlugin;
+
+// 自动检测 LOCALIZED 标志并加载 STRING 文件
+let loaded = LoadedPlugin::load_auto("MyMod.esp".into(), Some("english"))?;
+
+// 提取字符串
+let strings = loaded.extract_strings();
+println!("提取到 {} 个字符串", strings.len());
+
+// 保存到 JSON
+let json = serde_json::to_string_pretty(&strings)?;
+std::fs::write("strings.json", json)?;
+```
+
+### 使用编辑器 API 应用翻译
+
+```rust
+use esp_extractor::{Plugin, PluginEditor, DefaultEspWriter};
+
+// 加载插件
+let plugin = Plugin::load("MyMod.esp".into())?;
+
+// 创建编辑器
+let mut editor = PluginEditor::new(plugin);
+
+// 应用翻译
+let translations = vec![/* ExtractedString 对象 */];
+editor.apply_translations(translations)?;
+
+// 保存修改
+let writer = DefaultEspWriter;
+editor.save(&writer, "MyMod_CN.esp".as_ref())?;
+```
+
+### 处理本地化插件
+
+```rust
+use esp_extractor::LocalizedPluginContext;
+
+// 显式加载本地化插件（ESP + STRING 文件）
+let context = LocalizedPluginContext::load("DLC.esm".into(), "english")?;
+
+// 访问插件和 STRING 文件
+println!("插件: {}", context.plugin().get_name());
+println!("STRING 文件数: {}", context.string_files().files.len());
+
+// 提取字符串（包含 STRING 文件内容）
+let strings = context.plugin().extract_strings();
+```
+
+### 三种加载方式对比
+
+| 方式 | API | 适用场景 |
+|------|-----|---------|
+| **智能自动** | `LoadedPlugin::load_auto()` | 最推荐，自动检测并处理本地化 |
+| **精确控制** | `Plugin::load()` | 只需要 ESP 结构，不需要 STRING 文件 |
+| **明确本地化** | `LocalizedPluginContext::load()` | 确定是本地化插件，需要 STRING 文件 |
+
+详细的加载指南请参考：[docs/plugin-loading-guide.md](docs/plugin-loading-guide.md)
+
 ## 📚 API文档
 
 详细的API文档可以在 [docs.rs](https://docs.rs/esp_extractor) 上查看。
@@ -363,18 +441,34 @@ cargo doc --open
 
 ```
 src/
-├── lib.rs          # 库的主入口
-├── main.rs         # 命令行工具入口
-├── datatypes.rs    # 基础数据类型定义
-├── record.rs       # 记录解析逻辑
-├── group.rs        # 组解析逻辑
-├── plugin.rs       # 插件主类
-├── subrecord.rs    # 子记录解析
-├── string_types.rs # 字符串类型定义
-├── utils.rs        # 工具函数
-└── debug.rs        # 调试工具
+├── lib.rs                  # 库的主入口
+├── main.rs                 # 命令行工具入口
+├── io/                     # IO 抽象层 (v0.4.0+)
+│   ├── mod.rs
+│   ├── traits.rs           # Reader/Writer trait 定义
+│   ├── esp_io.rs           # ESP 文件 IO 默认实现
+│   └── string_file_io.rs   # STRING 文件 IO 默认实现
+├── editor/                 # 编辑器层 (v0.4.0+)
+│   ├── mod.rs
+│   ├── delta.rs            # 变更追踪系统
+│   └── plugin_editor.rs    # 有状态插件编辑器
+├── plugin_loader.rs        # 智能插件加载器 (v0.4.0+)
+├── localized_context.rs    # 本地化插件上下文 (v0.4.0+)
+├── plugin.rs               # 插件主类
+├── record.rs               # 记录解析逻辑
+├── group.rs                # 组解析逻辑
+├── subrecord.rs            # 子记录解析
+├── string_file.rs          # STRING 文件处理
+├── string_types.rs         # 字符串类型定义
+├── datatypes.rs            # 基础数据类型定义
+├── utils.rs                # 工具函数
+└── debug.rs                # 调试工具
 data/
-└── string_records.json  # 字符串记录定义
+└── string_records.json     # 字符串记录定义
+docs/
+└── plugin-loading-guide.md # 插件加载完整指南 (v0.4.0+)
+examples/
+└── basic_usage.rs          # 基本使用示例
 ```
 
 ## 🤝 贡献

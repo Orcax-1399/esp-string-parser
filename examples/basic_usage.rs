@@ -6,7 +6,7 @@
 //! 3. 应用翻译到ESP文件
 
 use esp_extractor::{LoadedPlugin, ExtractedString, is_supported_file, SUPPORTED_EXTENSIONS, VERSION};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("ESP字符串提取工具 v{}", VERSION);
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// 演示翻译应用功能
 fn demonstrate_translation_application(
-    file_path: &PathBuf, 
+    file_path: &Path,
     original_strings: &[ExtractedString]
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 翻译应用演示 ===");
@@ -149,7 +149,7 @@ fn demonstrate_translation_application(
     
     // 应用翻译（使用旧 API 兼容性）
     #[allow(deprecated)]
-    match esp_extractor::Plugin::apply_translations(file_path.clone(), output_path.clone(), translations, None) {
+    match esp_extractor::Plugin::apply_translations(file_path.to_path_buf(), output_path.clone(), translations, None) {
         Ok(()) => {
             println!("✓ 翻译应用成功！");
             println!("输出文件: {:?}", output_path);
@@ -166,11 +166,11 @@ fn demonstrate_translation_application(
 }
 
 /// 验证翻译结果
-fn verify_translation_result(translated_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn verify_translation_result(translated_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 验证翻译结果 ===");
 
     // 重新加载翻译后的文件（使用新的加载器）
-    let translated_loaded = LoadedPlugin::load_auto(translated_file.clone(), Some("english"))?;
+    let translated_loaded = LoadedPlugin::load_auto(translated_file.to_path_buf(), Some("english"))?;
     let translated_strings = translated_loaded.extract_strings();
     
     println!("翻译后文件包含 {} 个字符串", translated_strings.len());

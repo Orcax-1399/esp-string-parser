@@ -33,6 +33,7 @@ pub struct Plugin {
 /// 修改信息结构
 impl Plugin {
     /// 从翻译文件创建新的ESP文件
+    #[allow(deprecated)]
     pub fn apply_translations(
         input_path: PathBuf,
         output_path: PathBuf,
@@ -163,9 +164,9 @@ impl Plugin {
                         #[cfg(debug_assertions)]
                         eprintln!("提示: {:?} 目录下未找到STRING文件", dir);
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(debug_assertions)]
-                        eprintln!("警告: 无法从 {:?} 加载STRING文件: {}", dir, e);
+                        eprintln!("警告: 无法从 {:?} 加载STRING文件: {}", dir, _e);
                     }
                 }
             }
@@ -439,6 +440,7 @@ impl Plugin {
     }
     
     /// 统计组中的记录数量
+    #[allow(clippy::only_used_in_recursion)]
     fn count_group_records(&self, group: &Group) -> usize {
         group.children.iter().map(|child| match child {
             GroupChild::Group(subgroup) => self.count_group_records(subgroup),
@@ -452,6 +454,7 @@ impl Plugin {
     }
     
     /// 统计子组数量
+    #[allow(clippy::only_used_in_recursion)]
     fn count_subgroups(&self, group: &Group) -> usize {
         group.children.iter().map(|child| match child {
             GroupChild::Group(subgroup) => 1 + self.count_subgroups(subgroup),
@@ -511,9 +514,9 @@ impl Plugin {
                 let text_to_apply = trans.get_text_to_apply().to_string();
                 match string_files.update_string(*file_type, *string_id, text_to_apply) {
                     Ok(_) => applied_count += 1,
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(debug_assertions)]
-                        eprintln!("警告: 无法更新StringID {}: {}", string_id, e);
+                        eprintln!("警告: 无法更新StringID {}: {}", string_id, _e);
                     }
                 }
             } else {
@@ -926,6 +929,7 @@ fn format_form_id_helper(form_id: u32, masters: &[String], plugin_name: &str) ->
 
 /// 使用指定编码编码字符串
 fn encode_string_with_encoding(text: &str, encoding: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    #[allow(clippy::wildcard_in_or_patterns)]
     let mut result = match encoding.to_lowercase().as_str() {
         "utf8" | "utf-8" => text.as_bytes().to_vec(),
         "gbk" | "gb2312" => {

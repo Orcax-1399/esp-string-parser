@@ -2,7 +2,6 @@
 ///
 /// 该模块定义了文件读写的抽象接口，支持依赖注入和测试 mock。
 /// 遵循依赖倒置原则（DIP），面向接口编程。
-
 use std::path::Path;
 use crate::string_file::{StringFile, StringFileSet};
 

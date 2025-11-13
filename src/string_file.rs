@@ -220,8 +220,9 @@ impl StringFile {
     }
     
     /// 读取字符串数据
+    #[allow(clippy::type_complexity)]
     fn read_string_data(
-        cursor: &mut Cursor<&[u8]>, 
+        cursor: &mut Cursor<&[u8]>,
         file_type: &StringFileType,
         data: &[u8]
     ) -> Result<(String, Vec<u8>, Option<u32>), Box<dyn std::error::Error>> {
@@ -504,6 +505,7 @@ impl StringFileSet {
                 plugin_name.to_uppercase(),             // 全大写
             ];
 
+            #[cfg(debug_assertions)]
             let mut found = false;
             for name_variant in name_variants {
                 let filename = format!("{}_{}.{}", name_variant, language, file_type.to_extension());
@@ -512,7 +514,8 @@ impl StringFileSet {
                 if filepath.exists() {
                     let string_file = StringFile::new(filepath)?;
                     set.files.insert(file_type, string_file);
-                    found = true;
+                    #[cfg(debug_assertions)]
+                    { found = true; }
                     break;
                 }
 
@@ -527,7 +530,8 @@ impl StringFileSet {
                 if filepath_lower.exists() {
                     let string_file = StringFile::new(filepath_lower)?;
                     set.files.insert(file_type, string_file);
-                    found = true;
+                    #[cfg(debug_assertions)]
+                    { found = true; }
                     break;
                 }
             }

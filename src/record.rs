@@ -134,7 +134,8 @@ impl Record {
     
     /// 调试记录详细信息
     #[cfg(debug_assertions)]
-    fn debug_record_details(record_type: &str, form_id: u32, data_size: u32, timestamp: u16, 
+    #[allow(clippy::too_many_arguments)]
+    fn debug_record_details(record_type: &str, form_id: u32, data_size: u32, timestamp: u16,
                            version_control_info: u16, internal_version: u16, unknown: u16, flags: u32) {
         if ["STAT", "CONT", "GLOB", "ARMO", "WEAP", "NPC_"].contains(&record_type) {
             println!("FormID: 0x{:08X}", form_id);
@@ -184,6 +185,7 @@ impl Record {
     }
     
     /// 处理压缩数据
+    #[allow(clippy::type_complexity)]
     fn handle_compression(data: &[u8], flags: u32, record_type: &str) -> Result<(Vec<u8>, bool, Option<Vec<u8>>), Box<dyn std::error::Error>> {
         if flags & RecordFlags::COMPRESSED.bits() != 0 {
             match Self::decompress_data(data) {

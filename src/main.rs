@@ -1,3 +1,10 @@
+//! ESP 字符串提取工具 CLI
+//!
+//! 注意：CLI 代码暂时保留使用旧 API (Plugin::new)，将在未来版本迁移
+#![allow(deprecated)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::useless_asref)]
+
 #[cfg(feature = "cli")]
 use clap::Parser;
 use std::path::PathBuf;

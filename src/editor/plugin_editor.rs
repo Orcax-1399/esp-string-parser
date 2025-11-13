@@ -2,7 +2,6 @@
 ///
 /// 提供有状态的插件编辑接口，支持批量修改和延迟保存。
 /// 遵循"修改-保存分离"原则，所有修改操作仅在内存中进行。
-
 use std::path::Path;
 use crate::plugin::Plugin;
 use crate::string_types::ExtractedString;

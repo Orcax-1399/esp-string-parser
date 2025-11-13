@@ -2,7 +2,6 @@
 ///
 /// 该模块提供本地化插件（带 STRING 文件）的便捷处理接口。
 /// 将 Plugin 和 StringFileSet 组合在一起，遵循组合模式。
-
 use std::path::{Path, PathBuf};
 use crate::Plugin;
 use crate::StringFileSet;
@@ -119,9 +118,9 @@ impl LocalizedPluginContext {
                     #[cfg(debug_assertions)]
                     eprintln!("提示: {:?} 目录下未找到 STRING 文件", dir);
                 }
-                Err(e) => {
+                Err(_e) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("警告: 无法从 {:?} 加载 STRING 文件: {}", dir, e);
+                    eprintln!("警告: 无法从 {:?} 加载 STRING 文件: {}", dir, _e);
                 }
             }
         }

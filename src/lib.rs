@@ -12,28 +12,30 @@
 //! - **多编码支持**：支持UTF-8、GBK、ASCII等编码格式
 //! 
 //! ## 使用示例
-//! 
+//!
 //! ```rust,no_run
-//! use esp_extractor::{Plugin, ExtractedString};
+//! use esp_extractor::{LoadedPlugin, PluginEditor, DefaultEspWriter};
 //! use std::path::PathBuf;
-//! 
+//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // 加载ESP文件
-//! let plugin = Plugin::new(PathBuf::from("example.esp"))?;
-//! 
+//! // 智能自动加载插件（推荐）
+//! let loaded = LoadedPlugin::load_auto(PathBuf::from("example.esp"), Some("english"))?;
+//!
 //! // 提取字符串
-//! let strings = plugin.extract_strings();
+//! let strings = loaded.extract_strings();
 //! println!("提取到 {} 个字符串", strings.len());
-//! 
+//!
 //! // 准备翻译数据
 //! let translated_strings = strings; // 这里应该是你的翻译数据
-//! 
-//! // 应用翻译
-//! Plugin::apply_translations(
-//!     PathBuf::from("input.esp"),
-//!     PathBuf::from("output.esp"),
-//!     translated_strings
-//! )?;
+//!
+//! // 使用编辑器应用翻译
+//! let plugin = loaded.into_plugin();
+//! let mut editor = PluginEditor::new(plugin);
+//! editor.apply_translations(translated_strings)?;
+//!
+//! // 保存到文件
+//! let writer = DefaultEspWriter;
+//! editor.save(&writer, PathBuf::from("output.esp").as_ref())?;
 //! # Ok(())
 //! # }
 //! ```
@@ -129,6 +131,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// # Ok(())
 /// # }
 /// ```
+#[allow(deprecated)]
 pub fn extract_strings_from_file(file_path: std::path::PathBuf) -> std::result::Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
     let plugin = Plugin::new(file_path, None)?; // 使用默认语言
     Ok(plugin.extract_strings())
@@ -206,6 +209,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_version_exists() {
         assert!(!VERSION.is_empty());
     }

@@ -24,7 +24,6 @@
 /// let writer = DefaultEspWriter;
 /// editor.save(&writer, Path::new("output.esp"))?;
 /// ```
-
 pub mod delta;
 pub mod plugin_editor;
 

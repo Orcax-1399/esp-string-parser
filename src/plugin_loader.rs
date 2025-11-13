@@ -1,7 +1,6 @@
 /// 智能插件加载器
 ///
 /// 提供自动检测和加载的便捷 API，同时保持底层 API 的灵活性。
-
 use std::path::PathBuf;
 use crate::{Plugin, LocalizedPluginContext};
 
@@ -85,6 +84,20 @@ impl LoadedPlugin {
         }
     }
 
+    /// 转移所有权获取底层 Plugin（无论哪种类型）
+    ///
+    /// 如果是本地化插件，将丢弃 StringFileSet。
+    /// 如果需要保留 STRING 文件，使用 `match` 解构 `LoadedPlugin` 获取完整的 `LocalizedPluginContext`。
+    pub fn into_plugin(self) -> Plugin {
+        match self {
+            LoadedPlugin::Standard(plugin) => plugin,
+            LoadedPlugin::Localized(context) => {
+                let (plugin, _string_files, _language) = context.into_parts();
+                plugin
+            }
+        }
+    }
+
     /// 检查是否为本地化插件
     pub fn is_localized(&self) -> bool {
         matches!(self, LoadedPlugin::Localized(_))
@@ -111,7 +124,7 @@ impl LoadedPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
     #[test]
     fn test_load_auto_concept() {

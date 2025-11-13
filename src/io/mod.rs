@@ -17,7 +17,6 @@
 /// let reader = DefaultEspReader;
 /// let data = reader.read(Path::new("example.esp"))?;
 /// ```
-
 pub mod traits;
 pub mod esp_io;
 pub mod string_file_io;

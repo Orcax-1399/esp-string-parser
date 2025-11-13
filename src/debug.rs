@@ -175,6 +175,7 @@ impl EspDebugger {
     }
     
     /// 对比两个文件的结构
+    #[allow(deprecated)]
     pub fn compare_structures(
         original_path: PathBuf,
         rebuilt_path: PathBuf,
