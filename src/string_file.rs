@@ -79,7 +79,7 @@ impl StringEntry {
     /// 获取字符串的总大小（包括长度前缀和空终止符）
     pub fn get_total_size(&self, file_type: &StringFileType) -> u32 {
         // 使用content的实际字节长度，而不是raw_data，确保一致性
-        let content_size = self.content.as_bytes().len() as u32;
+        let content_size = self.content.len() as u32;
         let null_terminator = 1u32; // 空终止符
 
         if file_type.has_length_prefix() {
@@ -91,6 +91,7 @@ impl StringEntry {
 }
 
 /// Bethesda字符串文件解析器
+#[derive(Debug)]
 pub struct StringFile {
     /// 文件路径
     pub path: PathBuf,
@@ -308,7 +309,7 @@ impl StringFile {
         StringFileStats {
             plugin_name: self.plugin_name.clone(),
             language: self.language.clone(),
-            file_type: self.file_type.clone(),
+            file_type: self.file_type,
             string_count: self.entries.len(),
             total_content_size,
             total_raw_size,
@@ -466,6 +467,7 @@ impl std::fmt::Display for StringFileStats {
 }
 
 /// 字符串文件集合管理器
+#[derive(Debug)]
 pub struct StringFileSet {
     /// 字符串文件映射 (文件类型 -> StringFile)
     pub files: HashMap<StringFileType, StringFile>,

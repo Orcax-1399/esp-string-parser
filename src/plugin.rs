@@ -10,6 +10,7 @@ use std::io::Cursor;
 use serde_json;
 
 /// ESP插件解析器
+#[derive(Debug)]
 pub struct Plugin {
     /// 文件路径
     pub path: PathBuf,
@@ -24,6 +25,8 @@ pub struct Plugin {
     /// STRING文件集合（仅本地化插件有值）
     string_files: Option<StringFileSet>,
     /// 语言标识（用于STRING文件查找）
+    /// 注意：此字段仅用于向后兼容 deprecated 的 `new()` 方法
+    #[allow(dead_code)]
     language: String,
 }
 
@@ -59,7 +62,44 @@ impl Plugin {
         Ok(())
     }
 
-    /// 创建新的插件实例
+    /// 加载插件文件（v0.4.0+ 推荐方法）
+    ///
+    /// 只解析 ESP/ESM/ESL 文件本身，不加载 STRING 文件。
+    /// 如需处理本地化插件，请使用 `LocalizedPluginContext::load()`。
+    ///
+    /// # 参数
+    /// * `path` - ESP/ESM/ESL文件路径
+    ///
+    /// # 返回
+    /// 返回解析后的 Plugin 实例
+    ///
+    /// # 示例
+    /// ```rust,ignore
+    /// let plugin = Plugin::load("example.esp".into())?;
+    /// ```
+    pub fn load(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let string_records = Self::load_string_records()?;
+        let data = std::fs::read(&path)?;
+        let mut cursor = Cursor::new(&data[..]);
+
+        let header = Record::parse(&mut cursor)?;
+        Self::validate_esp_file(&header)?;
+
+        let masters = Self::extract_masters(&header);
+        let groups = Self::parse_groups(&mut cursor, &data)?;
+
+        Ok(Plugin {
+            path,
+            header,
+            groups,
+            masters,
+            string_records,
+            string_files: None,
+            language: String::new(),
+        })
+    }
+
+    /// 创建新的插件实例（已弃用，请使用 `Plugin::load()`）
     ///
     /// # 参数
     /// * `path` - ESP/ESM/ESL文件路径
@@ -67,6 +107,14 @@ impl Plugin {
     ///
     /// # 自动加载STRING文件
     /// 如果插件设置了LOCALIZED标志，会自动尝试加载同目录下的STRING文件
+    ///
+    /// # 废弃说明
+    /// 此方法违反单一职责原则（自动加载 STRING 文件），将在 v1.0.0 移除。
+    /// 请使用 `Plugin::load()` 代替，如需处理本地化插件请使用 `LocalizedPluginContext`。
+    #[deprecated(
+        since = "0.4.0",
+        note = "使用 Plugin::load() 代替。如需加载 STRING 文件，请使用 LocalizedPluginContext::load()"
+    )]
     pub fn new(path: PathBuf, language: Option<&str>) -> Result<Self, Box<dyn std::error::Error>> {
         let language = language.unwrap_or("english").to_string();
         let string_records = Self::load_string_records()?;
@@ -104,7 +152,7 @@ impl Plugin {
                 }
 
                 match StringFileSet::load_from_directory(&dir, plugin_name, &language) {
-                    Ok(set) if set.files.len() > 0 => {
+                    Ok(set) if !set.files.is_empty() => {
                         #[cfg(debug_assertions)]
                         println!("已加载STRING文件: {} 个文件类型（从 {:?}）", set.files.len(), dir);
                         loaded_set = Some(set);
@@ -187,6 +235,7 @@ impl Plugin {
     ///
     /// # 映射规则
     /// - 对话记录 (DIAL/INFO) 或对话子记录 (NAM1/RNAM) → DLSTRINGS
+    /// - 消息记录 (MESG) 的 DESC 子记录 → DLSTRINGS
     /// - 界面子记录 (ITXT/CTDA) → ILSTRINGS
     /// - 其他所有字符串子记录 (FULL/DESC/CNAM等) → STRINGS (默认)
     fn determine_string_file_type(record_type: &str, subrecord_type: &str) -> StringFileType {
@@ -196,6 +245,12 @@ impl Plugin {
         }
 
         if matches!(subrecord_type, "NAM1" | "RNAM") {
+            return StringFileType::DLSTRINGS;
+        }
+
+        // 消息记录的 DESC → DLSTRINGS
+        // MESG 记录用于游戏内消息提示，按照 Bethesda 约定存储在 DLSTRINGS 中
+        if record_type == "MESG" && subrecord_type == "DESC" {
             return StringFileType::DLSTRINGS;
         }
 
@@ -584,7 +639,7 @@ impl Plugin {
     }
 
     /// 应用翻译映射
-    fn apply_translation_map(&mut self, translations: &HashMap<String, ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) fn apply_translation_map(&mut self, translations: &HashMap<String, ExtractedString>) -> Result<(), Box<dyn std::error::Error>> {
         let string_records = self.string_records.clone();
         let masters = self.masters.clone();
         let plugin_name = self.get_name().to_string();
@@ -639,7 +694,7 @@ impl Plugin {
     }
     
     /// 写入记录
-    fn write_record(&self, record: &Record, output: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) fn write_record(&self, record: &Record, output: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
         use crate::datatypes::RecordFlags;
         
         // 写入记录类型
@@ -710,7 +765,7 @@ impl Plugin {
     }
     
     /// 写入组
-    fn write_group(&self, group: &Group, output: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) fn write_group(&self, group: &Group, output: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
         // 写入组头部
         output.extend_from_slice(b"GRUP");
         

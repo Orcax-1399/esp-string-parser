@@ -262,12 +262,35 @@ impl Record {
     fn parse_subrecords(data: &[u8]) -> Result<Vec<Subrecord>, Box<dyn std::error::Error>> {
         let mut subrecords = Vec::new();
         let mut cursor = Cursor::new(data);
-        
+
         while cursor.position() < data.len() as u64 {
+            // 检查剩余字节数
+            let remaining = data.len() as u64 - cursor.position();
+
+            // 子记录最小头部大小为 6 字节 (4字节类型 + 2字节大小)
+            // 如果剩余字节 < 6，检查是否为 NULL 填充
+            if remaining < 6 {
+                let remaining_bytes = &data[cursor.position() as usize..];
+
+                // 检查是否全为 NULL (0x00) - 这是合法的填充字节
+                if remaining_bytes.iter().all(|&b| b == 0) {
+                    // 这是 NULL 填充，安全跳过
+                    #[cfg(debug_assertions)]
+                    println!("跳过 {} 字节的 NULL 填充", remaining);
+                    break;
+                } else {
+                    // 不是填充，这是真正的错误
+                    return Err(format!(
+                        "记录末尾有 {} 字节非 NULL 数据，无法解析为子记录: {:02X?}",
+                        remaining, remaining_bytes
+                    ).into());
+                }
+            }
+
             let subrecord = Subrecord::parse(&mut cursor)?;
             subrecords.push(subrecord);
         }
-        
+
         Ok(subrecords)
     }
     
@@ -331,5 +354,117 @@ impl Record {
     pub fn debug_flags(&self) {
         #[cfg(debug_assertions)]
         Self::debug_flags_internal(self.flags);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 测试 1 字节 NULL 填充
+    #[test]
+    fn test_null_padding_1byte() {
+        // 构造测试数据: EDID 子记录 + 1 字节 NULL 填充
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00, // EDID, size=4
+            b't', b'e', b's', b't',              // 内容 "test"
+            0x00,                                 // 1 字节填充
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_ok(), "应该成功解析带 1 字节填充的记录");
+
+        let subrecords = result.unwrap();
+        assert_eq!(subrecords.len(), 1, "应该解析出 1 个子记录");
+        assert_eq!(subrecords[0].record_type, "EDID");
+    }
+
+    /// 测试 4 字节 NULL 填充
+    #[test]
+    fn test_null_padding_4bytes() {
+        // 构造测试数据: EDID 子记录 + 4 字节 NULL 填充
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00,
+            b't', b'e', b's', b't',
+            0x00, 0x00, 0x00, 0x00, // 4 字节填充
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_ok(), "应该成功解析带 4 字节填充的记录");
+
+        let subrecords = result.unwrap();
+        assert_eq!(subrecords.len(), 1);
+    }
+
+    /// 测试 7 字节 NULL 填充（最大情况）
+    #[test]
+    fn test_null_padding_7bytes() {
+        let data = vec![
+            b'F', b'U', b'L', b'L', 0x05, 0x00,
+            b'S', b'w', b'o', b'r', b'd',
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 7 字节填充
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_ok(), "应该成功解析带 7 字节填充的记录");
+    }
+
+    /// 测试无填充的正常记录
+    #[test]
+    fn test_no_padding() {
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00,
+            b't', b'e', b's', b't',
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_ok(), "应该成功解析无填充的记录");
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    /// 测试多个子记录 + 填充
+    #[test]
+    fn test_multiple_subrecords_with_padding() {
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00,
+            b't', b'e', b's', b't',
+            b'F', b'U', b'L', b'L', 0x05, 0x00,
+            b'S', b'w', b'o', b'r', b'd',
+            0x00, 0x00, // 2 字节填充
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 2, "应该解析出 2 个子记录");
+    }
+
+    /// 测试非 NULL 的无效尾部数据应该报错
+    #[test]
+    fn test_invalid_trailing_data() {
+        // 尾部有非 NULL 字节
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00,
+            b't', b'e', b's', b't',
+            0xFF, 0xAA, // 无效的尾部字节
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_err(), "非 NULL 的尾部数据应该报错");
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("非 NULL 数据"), "错误信息应包含'非 NULL 数据'");
+    }
+
+    /// 测试混合非 NULL 填充（部分 NULL 部分非 NULL）
+    #[test]
+    fn test_mixed_invalid_padding() {
+        let data = vec![
+            b'E', b'D', b'I', b'D', 0x04, 0x00,
+            b't', b'e', b's', b't',
+            0x00, 0xFF, 0x00, // 混合填充
+        ];
+
+        let result = Record::parse_subrecords(&data);
+        assert!(result.is_err(), "混合填充应该报错");
     }
 } 

@@ -48,6 +48,18 @@ pub mod string_types;
 pub mod string_file;
 pub mod utils;
 
+// IO 抽象层（v0.4.0 新增）
+pub mod io;
+
+// 编辑器层（v0.4.0 新增）
+pub mod editor;
+
+// 本地化插件支持（v0.4.0 新增）
+pub mod localized_context;
+
+// 智能插件加载器（v0.4.0 新增）
+pub mod plugin_loader;
+
 // 调试模块（仅在debug模式下可用）
 #[cfg(debug_assertions)]
 pub mod debug;
@@ -65,6 +77,21 @@ pub use string_file::{StringFile, StringFileType, StringEntry, StringFileSet, St
 // 数据类型和工具
 pub use datatypes::{RecordFlags, RawString};
 pub use utils::{is_valid_string, EspError};
+
+// IO 层导出（v0.4.0 新增）
+pub use io::{
+    EspReader, EspWriter, StringFileReader, StringFileWriter, RawEspData,
+    DefaultEspReader, DefaultEspWriter,
+};
+
+// 编辑器层导出（v0.4.0 新增）
+pub use editor::{PluginEditor, TranslationDelta, RecordChange, RecordId};
+
+// 本地化插件支持导出（v0.4.0 新增）
+pub use localized_context::LocalizedPluginContext;
+
+// 智能加载器导出（v0.4.0 新增）
+pub use plugin_loader::LoadedPlugin;
 
 // 调试工具（仅debug模式）
 #[cfg(debug_assertions)]

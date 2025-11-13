@@ -2,7 +2,7 @@ use crate::plugin::Plugin;
 use crate::record::Record;
 use crate::group::{Group, GroupChild};
 use crate::subrecord::Subrecord;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::Write;
 
@@ -194,7 +194,7 @@ impl EspDebugger {
     }
     
     /// 写入对比头部
-    fn write_comparison_header(output: &mut File, original_path: &PathBuf, rebuilt_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    fn write_comparison_header(output: &mut File, original_path: &Path, rebuilt_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         writeln!(output, "=== ESP文件结构对比 ===")?;
         writeln!(output, "原始文件: {}", original_path.display())?;
         writeln!(output, "重建文件: {}", rebuilt_path.display())?;

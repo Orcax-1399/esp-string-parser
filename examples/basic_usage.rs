@@ -5,13 +5,13 @@
 //! 2. 提取可翻译字符串
 //! 3. 应用翻译到ESP文件
 
-use esp_extractor::{Plugin, ExtractedString, is_supported_file, SUPPORTED_EXTENSIONS, VERSION};
+use esp_extractor::{LoadedPlugin, ExtractedString, is_supported_file, SUPPORTED_EXTENSIONS, VERSION};
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("ESP字符串提取工具 v{}", VERSION);
     println!("支持的文件格式: {:?}", SUPPORTED_EXTENSIONS);
-    
+
     // 从命令行获取文件路径
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -24,25 +24,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  apply     - 演示翻译应用功能");
         return Ok(());
     }
-    
+
     let file_path = PathBuf::from(&args[1]);
     let mode = args.get(2).map(|s| s.as_str()).unwrap_or("extract");
-    
+
     // 检查文件是否存在和格式是否支持
     if !file_path.exists() {
         eprintln!("错误: 文件不存在: {:?}", file_path);
         return Ok(());
     }
-    
+
     if !is_supported_file(&file_path) {
         eprintln!("错误: 不支持的文件格式。支持的格式: {:?}", SUPPORTED_EXTENSIONS);
         return Ok(());
     }
-    
+
     println!("正在分析文件: {:?}", file_path);
-    
-    // 加载插件
-    let plugin = Plugin::new(file_path.clone())?;
+
+    // 加载插件（使用新的智能加载器）
+    let loaded = LoadedPlugin::load_auto(file_path.clone(), Some("english"))?;
+    let plugin = loaded.plugin();
     
     // 显示基本信息
     println!("\n=== 插件信息 ===");
@@ -146,8 +147,9 @@ fn demonstrate_translation_application(
     // 准备输出文件路径
     let output_path = file_path.with_extension("translated.esp");
     
-    // 应用翻译
-    match Plugin::apply_translations(file_path.clone(), output_path.clone(), translations) {
+    // 应用翻译（使用旧 API 兼容性）
+    #[allow(deprecated)]
+    match esp_extractor::Plugin::apply_translations(file_path.clone(), output_path.clone(), translations, None) {
         Ok(()) => {
             println!("✓ 翻译应用成功！");
             println!("输出文件: {:?}", output_path);
@@ -166,10 +168,10 @@ fn demonstrate_translation_application(
 /// 验证翻译结果
 fn verify_translation_result(translated_file: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 验证翻译结果 ===");
-    
-    // 重新加载翻译后的文件
-    let translated_plugin = Plugin::new(translated_file.clone())?;
-    let translated_strings = translated_plugin.extract_strings();
+
+    // 重新加载翻译后的文件（使用新的加载器）
+    let translated_loaded = LoadedPlugin::load_auto(translated_file.clone(), Some("english"))?;
+    let translated_strings = translated_loaded.extract_strings();
     
     println!("翻译后文件包含 {} 个字符串", translated_strings.len());
     
