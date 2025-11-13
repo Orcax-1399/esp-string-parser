@@ -49,6 +49,7 @@ pub mod subrecord;
 pub mod string_types;
 pub mod string_file;
 pub mod utils;
+pub mod special_records;
 
 // IO 抽象层（v0.4.0 新增）
 pub mod io;
@@ -79,6 +80,7 @@ pub use string_file::{StringFile, StringFileType, StringEntry, StringFileSet, St
 // 数据类型和工具
 pub use datatypes::{RecordFlags, RawString};
 pub use utils::{is_valid_string, EspError};
+pub use special_records::SpecialRecordHandler;
 
 // IO 层导出（v0.4.0 新增）
 pub use io::{

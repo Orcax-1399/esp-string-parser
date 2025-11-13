@@ -289,8 +289,33 @@ impl Record {
                 }
             }
 
-            let subrecord = Subrecord::parse(&mut cursor)?;
-            subrecords.push(subrecord);
+            let pos_before = cursor.position();
+
+            match Subrecord::parse(&mut cursor) {
+                Ok(subrecord) => {
+                    subrecords.push(subrecord);
+                }
+                Err(e) => {
+                    eprintln!("\n❌ 子记录解析失败");
+                    eprintln!("  数据总长度: {} bytes", data.len());
+                    eprintln!("  失败位置: 0x{:X} ({})", pos_before, pos_before);
+                    eprintln!("  剩余数据: {} bytes", remaining);
+                    eprintln!("  已成功解析子记录数: {}", subrecords.len());
+
+                    if subrecords.len() > 0 {
+                        let last = &subrecords[subrecords.len() - 1];
+                        eprintln!("  前一个成功的子记录: {} (size: {})", last.record_type, last.size);
+                    }
+
+                    // 显示失败位置附近的原始字节（前后各16字节）
+                    let show_start = pos_before.saturating_sub(16) as usize;
+                    let show_end = ((pos_before + 32).min(data.len() as u64)) as usize;
+                    eprintln!("  失败位置附近的原始数据 (0x{:X} - 0x{:X}):", show_start, show_end);
+                    eprintln!("    {:02X?}", &data[show_start..show_end]);
+
+                    return Err(e);
+                }
+            }
         }
 
         Ok(subrecords)

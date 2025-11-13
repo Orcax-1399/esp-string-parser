@@ -68,6 +68,11 @@ struct Cli {
     /// 字符串文件操作：解析字符串文件并输出JSON
     #[arg(long)]
     parse_strings: Option<PathBuf>,
+
+    /// 将插件转换为 ESL (Light Plugin) 格式
+    /// 重编号所有 FormID，从 0x800 开始，最多支持 2048 个记录
+    #[arg(long)]
+    eslify: bool,
 }
 
 #[cfg(feature = "cli")]
@@ -101,7 +106,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(translation_json) = &cli.apply_jsonstr {
         return handle_translation_jsonstr(&cli, translation_json);
     }
-    
+
+    if cli.eslify {
+        return handle_eslify(&cli);
+    }
+
     // 默认模式：根据文件类型自动选择处理方式
     let extension = cli.input.extension()
         .and_then(|ext| ext.to_str())
@@ -159,15 +168,74 @@ fn handle_test_rebuild(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if !cli.quiet {
         println!("测试模式：解析并重建文件 {:?}", cli.input);
     }
-    
+
     let output_path = get_rebuild_output_path(cli);
     test_rebuild_file(cli.input.clone(), output_path.clone())?;
-    
+
     if !cli.quiet {
         println!("测试完成，重建文件输出到: {:?}", output_path);
         println!("请使用文件对比工具检查原文件和重建文件是否一致");
     }
-    
+
+    Ok(())
+}
+
+/// 处理 ESL 转换（FormID 重编号）
+fn handle_eslify(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if !cli.quiet {
+        println!("正在将插件转换为 ESL (Light Plugin) 格式...");
+        println!("输入文件: {:?}", cli.input);
+    }
+
+    // 加载插件
+    let mut plugin = Plugin::new(cli.input.clone(), None)?;
+
+    // 检查是否已经是轻量插件
+    if plugin.is_light() {
+        if !cli.quiet {
+            println!("注意：该插件已经是 Light Plugin (ESL)");
+        }
+    }
+
+    // 执行 FormID 重编号
+    if !cli.quiet {
+        println!("正在重编号 FormID...");
+    }
+
+    plugin.eslify_formids()?;
+
+    // 确定输出路径
+    let output_path = if let Some(ref output) = cli.output {
+        output.clone()
+    } else {
+        // 默认输出路径：原文件名 + _esl 后缀
+        let file_stem = cli.input.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output");
+        let extension = cli.input.extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("esp");
+        cli.input.parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(format!("{}_esl.{}", file_stem, extension))
+    };
+
+    // 保存修改后的插件
+    if !cli.quiet {
+        println!("正在保存到: {:?}", output_path);
+    }
+
+    plugin.write_to_file(output_path.clone())?;
+
+    if !cli.quiet {
+        println!("✓ ESL 转换完成！");
+        println!("  输出文件: {:?}", output_path);
+        println!("\n提示：");
+        println!("  1. 请确保插件记录数不超过 2048 个");
+        println!("  2. 使用 Creation Kit 或 xEdit 验证插件完整性");
+        println!("  3. 如果需要，手动设置插件的 LightMaster 标志");
+    }
+
     Ok(())
 }
 

@@ -2,15 +2,29 @@ use crate::datatypes::{read_u16, read_u32, read_i32};
 use crate::record::Record;
 use std::io::{Read, Cursor};
 
-/// 组类型
-#[derive(Debug, Clone)]
+/// 组类型 (映射自 Python 版本的 GroupType)
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GroupType {
-    /// 普通组
+    /// 顶级记录组 (Type 0)
     Normal,
-    /// 世界组
-    World,
-    /// 单元格组
-    Cell,
+    /// 世界空间子项 (Type 1)
+    WorldChildren,
+    /// 室内单元块 (Type 2)
+    InteriorCellBlock,
+    /// 室内单元子块 (Type 3)
+    InteriorCellSubBlock,
+    /// 室外单元块 (Type 4)
+    ExteriorCellBlock,
+    /// 室外单元子块 (Type 5)
+    ExteriorCellSubBlock,
+    /// 单元记录子项 (Type 6)
+    CellChildren,
+    /// 对话主题子项 (Type 7)
+    TopicChildren,
+    /// 持久单元记录子项 (Type 8)
+    CellPersistentChildren,
+    /// 临时单元记录子项 (Type 9)
+    CellTemporaryChildren,
     /// 未知类型
     Unknown(i32),
 }
@@ -20,8 +34,15 @@ impl GroupType {
     pub fn to_i32(&self) -> i32 {
         match self {
             GroupType::Normal => 0,
-            GroupType::World => 1,
-            GroupType::Cell => 6,
+            GroupType::WorldChildren => 1,
+            GroupType::InteriorCellBlock => 2,
+            GroupType::InteriorCellSubBlock => 3,
+            GroupType::ExteriorCellBlock => 4,
+            GroupType::ExteriorCellSubBlock => 5,
+            GroupType::CellChildren => 6,
+            GroupType::TopicChildren => 7,
+            GroupType::CellPersistentChildren => 8,
+            GroupType::CellTemporaryChildren => 9,
             GroupType::Unknown(value) => *value,
         }
     }
@@ -31,8 +52,15 @@ impl From<i32> for GroupType {
     fn from(value: i32) -> Self {
         match value {
             0 => GroupType::Normal,
-            1 => GroupType::World,
-            6 => GroupType::Cell,
+            1 => GroupType::WorldChildren,
+            2 => GroupType::InteriorCellBlock,
+            3 => GroupType::InteriorCellSubBlock,
+            4 => GroupType::ExteriorCellBlock,
+            5 => GroupType::ExteriorCellSubBlock,
+            6 => GroupType::CellChildren,
+            7 => GroupType::TopicChildren,
+            8 => GroupType::CellPersistentChildren,
+            9 => GroupType::CellTemporaryChildren,
             _ => GroupType::Unknown(value),
         }
     }

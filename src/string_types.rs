@@ -16,6 +16,10 @@ pub struct ExtractedString {
     pub record_type: String,
     /// 子记录类型
     pub subrecord_type: String,
+    /// 子记录索引（用于特殊记录类型如 INFO/PERK/QUST）
+    /// None 表示普通记录，Some(i) 表示特殊记录的第 i 个子记录
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<i32>,
 }
 
 impl ExtractedString {
@@ -34,6 +38,27 @@ impl ExtractedString {
             translated_text: None,
             record_type,
             subrecord_type,
+            index: None,
+        }
+    }
+
+    /// 创建带索引的提取字符串（用于特殊记录）
+    pub fn new_with_index(
+        editor_id: Option<String>,
+        form_id: String,
+        record_type: String,
+        subrecord_type: String,
+        original_text: String,
+        index: i32,
+    ) -> Self {
+        ExtractedString {
+            editor_id,
+            form_id,
+            original_text,
+            translated_text: None,
+            record_type,
+            subrecord_type,
+            index: Some(index),
         }
     }
 
@@ -49,10 +74,21 @@ impl ExtractedString {
     
     /// 生成唯一标识符用于匹配
     pub fn get_unique_key(&self) -> String {
-        format!("{}|{}|{}", 
-            self.editor_id.as_deref().unwrap_or(""), 
-            self.form_id, 
-            self.get_string_type()
-        )
+        if let Some(index) = self.index {
+            // 特殊记录：包含索引
+            format!("{}|{}|{}|{}",
+                self.editor_id.as_deref().unwrap_or(""),
+                self.form_id,
+                self.get_string_type(),
+                index
+            )
+        } else {
+            // 普通记录：无索引
+            format!("{}|{}|{}",
+                self.editor_id.as_deref().unwrap_or(""),
+                self.form_id,
+                self.get_string_type()
+            )
+        }
     }
 } 

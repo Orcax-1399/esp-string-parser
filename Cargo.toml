@@ -1,6 +1,6 @@
 [package]
 name = "esp_extractor"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Orcax-1399"]
 license = "MIT OR Apache-2.0"
@@ -35,6 +35,8 @@ anyhow = "1.0"             # 错误处理
 thiserror = "1.0"          # 自定义错误
 bitflags = "2.0"           # 标志位处理
 chrono = "0.4"             # 时间处理
+memmap2 = "0.9"            # 内存映射文件（性能优化）
+rayon = "1.10"             # 并行处理（性能优化）
 
 [dev-dependencies]
 tempfile = "3.0"          # 临时文件（用于测试）

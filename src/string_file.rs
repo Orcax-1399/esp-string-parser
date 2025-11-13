@@ -91,7 +91,7 @@ impl StringEntry {
 }
 
 /// Bethesda字符串文件解析器
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringFile {
     /// 文件路径
     pub path: PathBuf,
@@ -468,7 +468,7 @@ impl std::fmt::Display for StringFileStats {
 }
 
 /// 字符串文件集合管理器
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringFileSet {
     /// 字符串文件映射 (文件类型 -> StringFile)
     pub files: HashMap<StringFileType, StringFile>,
@@ -505,8 +505,6 @@ impl StringFileSet {
                 plugin_name.to_uppercase(),             // 全大写
             ];
 
-            #[cfg(debug_assertions)]
-            let mut found = false;
             for name_variant in name_variants {
                 let filename = format!("{}_{}.{}", name_variant, language, file_type.to_extension());
                 let filepath = directory.join(&filename);
@@ -514,8 +512,6 @@ impl StringFileSet {
                 if filepath.exists() {
                     let string_file = StringFile::new(filepath)?;
                     set.files.insert(file_type, string_file);
-                    #[cfg(debug_assertions)]
-                    { found = true; }
                     break;
                 }
 
@@ -530,15 +526,8 @@ impl StringFileSet {
                 if filepath_lower.exists() {
                     let string_file = StringFile::new(filepath_lower)?;
                     set.files.insert(file_type, string_file);
-                    #[cfg(debug_assertions)]
-                    { found = true; }
                     break;
                 }
-            }
-
-            #[cfg(debug_assertions)]
-            if !found {
-                eprintln!("提示: 未找到 {:?} 文件（尝试了多种大小写变体）", file_type);
             }
         }
 

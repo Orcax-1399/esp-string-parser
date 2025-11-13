@@ -59,7 +59,7 @@ impl LocalizedPluginContext {
     /// - 如果插件未设置 LOCALIZED 标志（警告但不报错）
     pub fn load(path: PathBuf, language: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // 加载插件
-        let plugin = Plugin::load(path.clone())?;
+        let mut plugin = Plugin::load(path.clone())?;
 
         // 检查是否为本地化插件
         if !plugin.is_localized() {
@@ -71,6 +71,10 @@ impl LocalizedPluginContext {
 
         // 加载 STRING 文件
         let string_files = Self::load_string_files(&path, &plugin, language)?;
+
+        // 🔧 关键修复：将 STRING 文件设置到 Plugin 对象中
+        // 这样 plugin.extract_strings() 就可以访问 STRING 文件了
+        plugin.set_string_files(string_files.clone());
 
         Ok(Self {
             plugin,
@@ -98,8 +102,13 @@ impl LocalizedPluginContext {
             plugin_dir.join("strings"),             // strings子目录（小写）
         ];
 
+        #[cfg(debug_assertions)]
+        let mut search_attempts = Vec::new();  // 收集搜索记录
+
         for dir in search_dirs {
             if !dir.exists() {
+                #[cfg(debug_assertions)]
+                search_attempts.push(format!("{:?} (目录不存在)", dir));
                 continue;
             }
 
@@ -107,7 +116,7 @@ impl LocalizedPluginContext {
                 Ok(set) if !set.files.is_empty() => {
                     #[cfg(debug_assertions)]
                     println!(
-                        "已加载 STRING 文件: {} 个文件类型（从 {:?}）",
+                        "✅ 已加载 STRING 文件: {} 个文件类型（从 {:?}）",
                         set.files.len(),
                         dir
                     );
@@ -116,12 +125,21 @@ impl LocalizedPluginContext {
                 Ok(_) => {
                     // 找到目录但没有 STRING 文件，继续搜索
                     #[cfg(debug_assertions)]
-                    eprintln!("提示: {:?} 目录下未找到 STRING 文件", dir);
+                    search_attempts.push(format!("{:?} (目录存在但无匹配文件)", dir));
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("警告: 无法从 {:?} 加载 STRING 文件: {}", dir, _e);
+                    search_attempts.push(format!("{:?} (加载失败: {})", dir, _e));
                 }
+            }
+        }
+
+        // 只在所有路径都失败后才输出摘要
+        #[cfg(debug_assertions)]
+        {
+            eprintln!("⚠️ 未找到 STRING 文件，已尝试以下路径:");
+            for attempt in &search_attempts {
+                eprintln!("  - {}", attempt);
             }
         }
 
