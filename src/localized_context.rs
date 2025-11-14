@@ -83,6 +83,62 @@ impl LocalizedPluginContext {
         })
     }
 
+    /// 使用已加载的 Plugin 创建本地化上下文
+    ///
+    /// ⚡ 性能优化：避免重复加载 ESP 文件
+    ///
+    /// # 参数
+    /// * `plugin` - 已经加载好的 Plugin 实例
+    /// * `plugin_path` - 插件文件路径（用于定位 STRING 文件）
+    /// * `language` - 语言标识（如 "english", "chinese" 等）
+    ///
+    /// # 返回
+    /// 返回包含插件和 STRING 文件的上下文
+    ///
+    /// # 错误
+    /// - 如果 STRING 文件加载失败
+    ///
+    /// # 示例
+    /// ```rust,ignore
+    /// // 先加载 Plugin
+    /// let plugin = Plugin::load("DismemberingFramework.esm".into())?;
+    ///
+    /// // 检查是否为本地化插件
+    /// if plugin.is_localized() {
+    ///     // 使用已加载的 Plugin 创建上下文（避免重复加载）
+    ///     let context = LocalizedPluginContext::new_with_plugin(
+    ///         plugin,
+    ///         "DismemberingFramework.esm".into(),
+    ///         "english",
+    ///     )?;
+    /// }
+    /// ```
+    pub fn new_with_plugin(
+        mut plugin: Plugin,
+        plugin_path: PathBuf,
+        language: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        // 检查是否为本地化插件
+        if !plugin.is_localized() {
+            eprintln!(
+                "警告: 插件 {} 未设置 LOCALIZED 标志，可能不包含 STRING 文件",
+                plugin.get_name()
+            );
+        }
+
+        // 加载 STRING 文件
+        let string_files = Self::load_string_files(&plugin_path, &plugin, language)?;
+
+        // 将 STRING 文件设置到 Plugin 对象中
+        plugin.set_string_files(string_files.clone());
+
+        Ok(Self {
+            plugin,
+            string_files,
+            language: language.to_string(),
+        })
+    }
+
     /// 加载 STRING 文件（内部辅助方法）
     fn load_string_files(
         path: &Path,

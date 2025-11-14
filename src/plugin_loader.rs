@@ -49,29 +49,33 @@ impl LoadedPlugin {
         path: PathBuf,
         language: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // 先加载基础 Plugin
+        // ⚡ 性能优化：只加载一次 ESP 文件
         let plugin = Plugin::load(path.clone())?;
 
         // 检查是否为本地化插件
         if plugin.is_localized() {
-            // 本地化插件：尝试加载 STRING 文件
+            // 本地化插件：使用已加载的 Plugin 创建上下文（避免重复加载）
             let lang = language.unwrap_or("english");
 
-            match LocalizedPluginContext::load(path, lang) {
+            // ✅ 使用 new_with_plugin 复用已加载的 Plugin
+            match LocalizedPluginContext::new_with_plugin(plugin, path.clone(), lang) {
                 Ok(context) => Ok(LoadedPlugin::Localized(context)),
                 Err(e) => {
-                    // STRING 文件加载失败，降级为普通插件
+                    // STRING 文件加载失败，需要重新加载 Plugin
+                    // 因为 plugin 的所有权已经转移到 new_with_plugin 中
                     eprintln!(
-                        "警告: 本地化插件 {} 的 STRING 文件加载失败: {}",
-                        plugin.get_name(),
+                        "警告: STRING 文件加载失败: {}",
                         e
                     );
                     eprintln!("降级为普通插件模式（字符串将显示为 StringID）");
-                    Ok(LoadedPlugin::Standard(plugin))
+
+                    // 重新加载 Plugin（仅在 STRING 加载失败时）
+                    let fallback_plugin = Plugin::load(path)?;
+                    Ok(LoadedPlugin::Standard(fallback_plugin))
                 }
             }
         } else {
-            // 普通插件
+            // 普通插件：直接返回
             Ok(LoadedPlugin::Standard(plugin))
         }
     }

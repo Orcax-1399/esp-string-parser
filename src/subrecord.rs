@@ -42,8 +42,11 @@ impl Subrecord {
             // 读取真实字段大小（32位整数）
             let field_size = read_u32(cursor)?;
 
-            eprintln!("📦 检测到 XXXX 超大子记录");
-            eprintln!("  真实数据大小: {} bytes (0x{:X})", field_size, field_size);
+            #[cfg(debug_assertions)]
+            {
+                eprintln!("📦 检测到 XXXX 超大子记录");
+                eprintln!("  真实数据大小: {} bytes (0x{:X})", field_size, field_size);
+            }
 
             // 读取后续 subrecord 的头部
             let mut next_type_bytes = [0u8; 4];
@@ -58,12 +61,14 @@ impl Subrecord {
                 );
             }
 
+            #[cfg(debug_assertions)]
             eprintln!("  后续子记录类型: {}", next_type);
 
             // 读取实际数据
             let mut data = vec![0u8; field_size as usize];
             cursor.read_exact(&mut data)?;
 
+            #[cfg(debug_assertions)]
             eprintln!("  ✓ XXXX 子记录解析成功");
 
             // 返回一个表示实际子记录的 Subrecord

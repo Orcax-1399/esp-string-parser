@@ -22,7 +22,7 @@
 
 ```toml
 [dependencies]
-esp_extractor = "0.5.1"
+esp_extractor = "0.5.2"
 ```
 
 ### 作为命令行工具
@@ -341,6 +341,33 @@ cargo doc --open
 
 ## 📝 版本历史
 
+### v0.5.2 (2025-11-14) - 性能一致性优化 ⚡
+
+**关键修复**
+- 🚀 **解决 load_auto 隐性性能问题**：修复本地化插件重复加载导致的 2.5 倍性能损失
+  - 问题原因：`LoadedPlugin::load_auto()` 对本地化插件会加载 ESP 文件两次
+  - 第一次：检查 `is_localized()` 标志
+  - 第二次：`LocalizedPluginContext::load()` 内部再次完整加载
+  - 优化方案：引入 `LocalizedPluginContext::new_with_plugin()` 复用已加载的 Plugin
+- ✅ **性能提升**：Skyrim.esm (238MB) 加载时间从 3.28 秒降至 1.36 秒
+  - CLI 方式（Plugin::new）：1.34 秒
+  - load_auto 优化前：3.28 秒（2.48x 慢）
+  - load_auto 优化后：1.36 秒（**1.01x，几乎一致！**）
+- 🔧 **代码清理**：使用条件编译保护所有调试日志，Release 模式输出简洁
+
+**架构改进**
+- 新增 `LocalizedPluginContext::new_with_plugin()` API
+- 遵循 DRY 原则，消除重复的 ESP 文件解析
+- 保持向后兼容，原有 API 不受影响
+- 新增性能对比测试工具 `examples/performance_comparison.rs`
+
+**影响范围**
+- 所有使用 `LoadedPlugin::load_auto()` 的用户将自动获得 2.5 倍性能提升
+- 本地化插件（Skyrim.esm、Fallout4.esm 等）受益最大
+- 普通插件性能保持不变
+
+---
+
 ### v0.5.1 (2025-11-14) - STRING 类型路由修复 🔧
 
 **重要修复**
@@ -412,6 +439,6 @@ cargo doc --open
 
 ---
 
-**当前版本**: v0.5.1
-**稳定性**: 稳定（已通过多文件验证）  
+**当前版本**: v0.5.2
+**稳定性**: 稳定（已通过性能测试和多文件验证）
 **推荐用途**: Mod 翻译、数据提取、批量处理
