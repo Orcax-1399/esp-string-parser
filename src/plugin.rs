@@ -316,32 +316,24 @@ impl Plugin {
     /// 根据记录类型和子记录类型确定应该使用哪个STRING文件类型
     ///
     /// # 映射规则
-    /// - 对话记录 (DIAL/INFO) 或对话子记录 (NAM1/RNAM) → DLSTRINGS
-    /// - 消息记录 (MESG) 的 DESC 子记录 → DLSTRINGS
-    /// - 界面子记录 (ITXT/CTDA) → ILSTRINGS
-    /// - 其他所有字符串子记录 (FULL/DESC/CNAM等) → STRINGS (默认)
+    /// - INFO 记录 → ILSTRINGS（对话信息）
+    /// - DESC/CNAM 子记录 → DLSTRINGS（描述文本/内容，通常是较长的文本）
+    /// - 其他所有字符串子记录 (FULL/NNAM等) → STRINGS (默认)
     fn determine_string_file_type(record_type: &str, subrecord_type: &str) -> StringFileType {
-        // 对话相关 → DLSTRINGS
-        if record_type == "DIAL" || record_type == "INFO" {
-            return StringFileType::DLSTRINGS;
-        }
-
-        if matches!(subrecord_type, "NAM1" | "RNAM") {
-            return StringFileType::DLSTRINGS;
-        }
-
-        // 消息记录的 DESC → DLSTRINGS
-        // MESG 记录用于游戏内消息提示，按照 Bethesda 约定存储在 DLSTRINGS 中
-        if record_type == "MESG" && subrecord_type == "DESC" {
-            return StringFileType::DLSTRINGS;
-        }
-
-        // 界面相关 → ILSTRINGS
-        if matches!(subrecord_type, "ITXT" | "CTDA") {
+        // INFO 记录 → ILSTRINGS
+        // INFO 记录包含对话信息，按照 Bethesda 约定存储在 ILSTRINGS 中
+        if record_type == "INFO" {
             return StringFileType::ILSTRINGS;
         }
 
+        // DESC 和 CNAM 子记录 → DLSTRINGS
+        // 这些通常是较长的描述性文本或内容，按照 Bethesda 约定存储在 DLSTRINGS 中
+        if matches!(subrecord_type, "DESC" | "CNAM") {
+            return StringFileType::DLSTRINGS;
+        }
+
         // 默认 → STRINGS
+        // 包括 FULL, NNAM, SHRT, DNAM 等常规名称和简短文本
         StringFileType::STRINGS
     }
 
@@ -443,12 +435,30 @@ impl Plugin {
                 Err(_) => return None,
             };
 
+            // StringID 为 0 表示无字符串或空字段，直接跳过不处理
+            if string_id == 0 {
+                return None;
+            }
+
             // 确定应该从哪个STRING文件查找
             let file_type = Self::determine_string_file_type(record_type, &subrecord.record_type);
 
             // 从STRING文件查找实际文本
             if let Some(ref string_files) = self.string_files {
                 if let Some(entry) = string_files.get_string_by_type(file_type, string_id) {
+                    // 调试模式下输出成功提取的详细信息（设置环境变量 ESP_DEBUG_STRINGS=1 启用）
+                    #[cfg(debug_assertions)]
+                    if std::env::var("ESP_DEBUG_STRINGS").is_ok() {
+                        let editor_id_str = editor_id.as_ref()
+                            .map(|s| s.as_str())
+                            .unwrap_or("<无EditorID>");
+                        eprintln!(
+                            "DEBUG: StringID {} 从 {:?} 文件提取 (来自 {}.{}, FormID: {}, EditorID: {}, 内容: \"{}\")",
+                            string_id, file_type, record_type, &subrecord.record_type, form_id_str, editor_id_str,
+                            &entry.content.chars().take(30).collect::<String>()
+                        );
+                    }
+
                     RawString {
                         content: entry.content.clone(),
                         encoding: "utf-8".to_string(),
@@ -456,7 +466,15 @@ impl Plugin {
                 } else {
                     // STRING文件中未找到，返回占位符
                     #[cfg(debug_assertions)]
-                    eprintln!("警告: StringID {} 在 {:?} 文件中未找到", string_id, file_type);
+                    {
+                        let editor_id_str = editor_id.as_ref()
+                            .map(|s| s.as_str())
+                            .unwrap_or("<无EditorID>");
+                        eprintln!(
+                            "警告: StringID {} 在 {:?} 文件中未找到 (来自 {}.{}, FormID: {}, EditorID: {})",
+                            string_id, file_type, record_type, &subrecord.record_type, form_id_str, editor_id_str
+                        );
+                    }
 
                     RawString {
                         content: format!("StringID_{}_{:?}", string_id, file_type),
@@ -466,7 +484,15 @@ impl Plugin {
             } else {
                 // 没有加载STRING文件
                 #[cfg(debug_assertions)]
-                eprintln!("警告: 本地化插件但未加载STRING文件，StringID={}", string_id);
+                {
+                    let editor_id_str = editor_id.as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("<无EditorID>");
+                    eprintln!(
+                        "警告: 本地化插件但未加载STRING文件 (StringID: {}, 来自 {}.{}, FormID: {}, EditorID: {})",
+                        string_id, record_type, &subrecord.record_type, form_id_str, editor_id_str
+                    );
+                }
 
                 RawString {
                     content: format!("StringID_{}", string_id),
@@ -1210,5 +1236,85 @@ fn encode_string_with_encoding(text: &str, encoding: &str) -> Result<Vec<u8>, Bo
     // 添加null终止符
     result.push(0);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_info_routes_to_ilstrings() {
+        let file_type = Plugin::determine_string_file_type("INFO", "NAM1");
+        assert_eq!(file_type, StringFileType::ILSTRINGS,
+            "INFO记录应该路由到ILSTRINGS（对话信息）");
+    }
+
+    #[test]
+    fn test_desc_routes_to_dlstrings() {
+        // 任何record的DESC都应该路由到DLSTRINGS
+        let file_type = Plugin::determine_string_file_type("PERK", "DESC");
+        assert_eq!(file_type, StringFileType::DLSTRINGS,
+            "PERK DESC应该路由到DLSTRINGS");
+
+        let file_type = Plugin::determine_string_file_type("WEAP", "DESC");
+        assert_eq!(file_type, StringFileType::DLSTRINGS,
+            "WEAP DESC应该路由到DLSTRINGS");
+
+        let file_type = Plugin::determine_string_file_type("MESG", "DESC");
+        assert_eq!(file_type, StringFileType::DLSTRINGS,
+            "MESG DESC应该路由到DLSTRINGS");
+    }
+
+    #[test]
+    fn test_cnam_routes_to_dlstrings() {
+        // 任何record的CNAM都应该路由到DLSTRINGS
+        let file_type = Plugin::determine_string_file_type("QUST", "CNAM");
+        assert_eq!(file_type, StringFileType::DLSTRINGS,
+            "QUST CNAM应该路由到DLSTRINGS");
+
+        let file_type = Plugin::determine_string_file_type("BOOK", "CNAM");
+        assert_eq!(file_type, StringFileType::DLSTRINGS,
+            "BOOK CNAM应该路由到DLSTRINGS");
+    }
+
+    #[test]
+    fn test_full_routes_to_strings() {
+        // FULL应该路由到STRINGS
+        let file_type = Plugin::determine_string_file_type("WEAP", "FULL");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "WEAP FULL应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("PERK", "FULL");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "PERK FULL应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("DIAL", "FULL");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "DIAL FULL应该路由到STRINGS");
+    }
+
+    #[test]
+    fn test_other_subrecords_route_to_strings() {
+        // NNAM, DNAM, SHRT等其他subrecord应该路由到STRINGS
+        let file_type = Plugin::determine_string_file_type("QUST", "NNAM");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "QUST NNAM应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("MGEF", "DNAM");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "MGEF DNAM应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("NPC_", "SHRT");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "NPC_ SHRT应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("ACTI", "RNAM");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "ACTI RNAM应该路由到STRINGS");
+
+        let file_type = Plugin::determine_string_file_type("MESG", "ITXT");
+        assert_eq!(file_type, StringFileType::STRINGS,
+            "MESG ITXT应该路由到STRINGS（不是DESC/CNAM）");
+    }
 }
 

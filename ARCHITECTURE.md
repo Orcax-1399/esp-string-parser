@@ -180,41 +180,46 @@ Bethesda游戏使用外部字符串表文件存储本地化文本。有三种类
 
 ```rust
 // 子记录类型决定应该从哪个STRING文件查找
+// 基于Bethesda官方约定的简化规则
 fn determine_string_file_type(record_type: &str, subrecord_type: &str) -> StringFileType {
-    // 1. 对话记录 → DLSTRINGS
-    if record_type == "DIAL" || record_type == "INFO" {
-        return StringFileType::DLSTRINGS;
-    }
-
-    // 2. 特定对话子记录 → DLSTRINGS
-    if matches!(subrecord_type, "NAM1" | "RNAM") {
-        return StringFileType::DLSTRINGS;
-    }
-
-    // 3. 界面/列表字符串 → ILSTRINGS
-    if matches!(subrecord_type, "ITXT" | "CTDA") {
+    // 1. INFO 记录 → ILSTRINGS
+    // INFO 记录包含对话信息，按照 Bethesda 约定存储在 ILSTRINGS 中
+    if record_type == "INFO" {
         return StringFileType::ILSTRINGS;
     }
 
-    // 4. 一般字符串 → STRINGS (默认)
-    // FULL, DESC, CNAM, NNAM, SHRT, DNAM, 等等
+    // 2. DESC 和 CNAM 子记录 → DLSTRINGS
+    // 这些通常是较长的描述性文本或内容，按照 Bethesda 约定存储在 DLSTRINGS 中
+    if matches!(subrecord_type, "DESC" | "CNAM") {
+        return StringFileType::DLSTRINGS;
+    }
+
+    // 3. 默认 → STRINGS
+    // 包括 FULL, NNAM, SHRT, DNAM 等常规名称和简短文本
     StringFileType::STRINGS
 }
 ```
 
 #### 常见子记录映射表
 
-| 子记录类型 | 说明 | STRING文件 | 示例记录类型 |
-|-----------|------|-----------|-------------|
-| FULL | 完整名称 | STRINGS | WEAP, ARMO, NPC_, BOOK |
-| DESC | 描述文本 | STRINGS | WEAP, ARMO, BOOK, PERK |
-| CNAM | 内容/条件 | STRINGS | BOOK, QUST |
-| NNAM | 名称/注释 | STRINGS | QUST |
-| SHRT | 简短名称 | STRINGS | NPC_ |
-| NAM1 | 对话响应 | **DLSTRINGS** | INFO |
-| RNAM | 对话提示 | **DLSTRINGS** | INFO, ACTI |
-| ITXT | 界面文本 | **ILSTRINGS** | MESG |
-| CTDA | 条件文本 | **ILSTRINGS** | - |
+| 子记录类型 | 说明 | STRING文件 | 示例记录类型 | 备注 |
+|-----------|------|-----------|-------------|------|
+| **DESC** | 描述文本 | **DLSTRINGS** | PERK, WEAP, ARMO, BOOK, MESG, SPEL, SHOU | 所有DESC都路由到DLSTRINGS |
+| **CNAM** | 内容/日志 | **DLSTRINGS** | QUST, BOOK | 所有CNAM都路由到DLSTRINGS |
+| FULL | 完整名称 | STRINGS | WEAP, ARMO, NPC_, BOOK, PERK | 通用名称字段 |
+| NNAM | 任务目标 | STRINGS | QUST | 任务目标文本 |
+| SHRT | 简短名称 | STRINGS | NPC_ | 角色简称 |
+| DNAM | 数据/描述 | STRINGS | MGEF | 魔法效果说明（不是DESC） |
+| RNAM | 提示文本 | STRINGS | ACTI, FLOR | 交互提示 |
+| NAM1 | 对话文本 | **ILSTRINGS** | INFO | INFO记录的对话 |
+| ITXT | 界面文本 | STRINGS | MESG | 界面元素（不是INFO） |
+| TNAM | 文本内容 | STRINGS | NOTE, WOOP | 笔记/树木文本 |
+| RDMP | 地区描述 | STRINGS | REGN | 地区映射描述 |
+
+**简化规则说明：**
+- **INFO 记录** → 所有子记录都路由到 **ILSTRINGS**
+- **DESC/CNAM 子记录** → 无论record类型，都路由到 **DLSTRINGS**
+- **其他所有** → 默认路由到 **STRINGS**
 
 ---
 
