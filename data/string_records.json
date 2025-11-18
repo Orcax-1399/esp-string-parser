@@ -23,7 +23,7 @@
     "SCRL": ["FULL", "DESC"],
     "SPEL": ["FULL", "DESC"],
     "ENCH": ["FULL"],
-    "AMMO": ["FULL"],
+    "AMMO": ["FULL", "DESC"],
     "ACTI": ["FULL", "RNAM"],
     "FLOR": ["FULL", "RNAM"],
     "FURN": ["FULL"],

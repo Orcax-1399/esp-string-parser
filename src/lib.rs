@@ -63,6 +63,9 @@ pub mod localized_context;
 // 智能插件加载器（v0.4.0 新增）
 pub mod plugin_loader;
 
+// BSA 归档访问层（v0.5.2 新增）
+pub mod bsa;
+
 // 调试模块（仅在debug模式下可用）
 #[cfg(debug_assertions)]
 pub mod debug;

@@ -8,7 +8,7 @@
 #[cfg(feature = "cli")]
 use clap::Parser;
 use std::path::PathBuf;
-use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS};
+use esp_extractor::{Plugin, ExtractedString, SUPPORTED_EXTENSIONS, LoadedPlugin};
 use esp_extractor::StringFile;
 use esp_extractor::group::{Group, GroupChild};
 
@@ -338,26 +338,27 @@ fn handle_string_extraction(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
     if !cli.quiet {
         println!("正在解析插件: {:?}", cli.input);
     }
-    
-    let plugin = Plugin::new(cli.input.clone(), None)
+
+    // 使用新的 LoadedPlugin API，支持 BSA fallback
+    let loaded = LoadedPlugin::load_auto(cli.input.clone(), Some("english"))
         .map_err(|e| format!("解析插件失败: {}", e))?;
-    
+
     if cli.stats {
-        println!("{}", plugin.get_stats());
+        println!("{}", loaded.plugin().get_stats());
         return Ok(());
     }
-    
-    let strings = plugin.extract_strings();
+
+    let strings = loaded.extract_strings();
     let output_path = cli.output.as_ref()
         .map(|p| p.clone())
         .unwrap_or_else(|| cli.input.with_extension("json"));
-    
+
     save_strings_to_file(&strings, &output_path)?;
-    
+
     if !cli.quiet {
-        print_extraction_summary(&plugin, &strings, &output_path);
+        print_extraction_summary(loaded.plugin(), &strings, &output_path);
     }
-    
+
     Ok(())
 }
 

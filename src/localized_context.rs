@@ -190,16 +190,32 @@ impl LocalizedPluginContext {
             }
         }
 
-        // 只在所有路径都失败后才输出摘要
+        // 文件系统查找失败，尝试 BSA fallback
         #[cfg(debug_assertions)]
         {
-            eprintln!("⚠️ 未找到 STRING 文件，已尝试以下路径:");
+            eprintln!("⚠️ 文件系统中未找到 STRING 文件，已尝试以下路径:");
             for attempt in &search_attempts {
                 eprintln!("  - {}", attempt);
             }
+            eprintln!("🔍 尝试从 BSA 归档中加载...");
         }
 
-        Err("未找到任何 STRING 文件".into())
+        match StringFileSet::load_from_bsa(path, plugin_name, language) {
+            Ok(set) => {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "✅ 从 BSA 中成功加载 STRING 文件: {} 个文件类型",
+                    set.files.len()
+                );
+                Ok(set)
+            }
+            Err(_e) => {
+                #[cfg(debug_assertions)]
+                eprintln!("❌ BSA fallback 也失败: {}", _e);
+
+                Err("未找到任何 STRING 文件（文件系统和 BSA 都失败）".into())
+            }
+        }
     }
 
     /// 获取插件的不可变引用

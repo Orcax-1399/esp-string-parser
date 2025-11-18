@@ -10,6 +10,7 @@
 
 - ⚡ **极致性能** - v0.5.0 实现 26 倍性能提升（240秒 → 9秒）
 - 🔧 **完整提取** - v0.5.1 修复 STRING 路由，提取率提升 190%
+- 📦 **BSA Fallback** - v0.6.0 支持从 BSA 归档自动提取 STRING 文件
 - 🏗️ **分层架构** - IO 抽象层 + 编辑器层，职责清晰
 - 🎯 **智能加载** - 自动检测本地化插件，按需加载 STRING 文件
 - 📝 **有状态编辑** - 支持批量修改、延迟保存、撤销/重做
@@ -22,7 +23,7 @@
 
 ```toml
 [dependencies]
-esp_extractor = "0.5.2"
+esp_extractor = "0.6.0"
 ```
 
 ### 作为命令行工具
@@ -39,7 +40,7 @@ cargo install esp_extractor --features cli
 # 1. 提取字符串到 JSON
 esp_extractor -i "MyMod.esp" -o "strings.json"
 
-# 2. 编辑 JSON 文件中的 original_text 字段
+# 2. 编辑 JSON 文件中的 text 字段为翻译文本
 
 # 3. 应用翻译
 esp_extractor -i "MyMod.esp" --apply-file "strings_cn.json" -o "MyMod_CN.esp"
@@ -147,7 +148,7 @@ esp_extractor -i "Skyrim_english.STRINGS" --stats
 esp_extractor -i "MyMod.esp" --apply-file "translations.json" -o "MyMod_CN.esp"
 
 # 从 JSON 字符串应用部分翻译（适合少量修改）
-esp_extractor -i "MyMod.esp" --apply-jsonstr '[{"editor_id":"IronSword","form_id":"00012BB7|Skyrim.esm","original_text":"铁剑","record_type":"WEAP","subrecord_type":"FULL"}]' -o "MyMod_CN.esp"
+esp_extractor -i "MyMod.esp" --apply-jsonstr '[{"editor_id":"IronSword","form_id":"00012BB7|Skyrim.esm","text":"铁剑","record_type":"WEAP","subrecord_type":"FULL","index":0}]' -o "MyMod_CN.esp"
 
 # 从标准输入读取翻译（适合脚本处理）
 cat translations.json | esp_extractor -i "MyMod.esp" --apply-partial-stdin -o "MyMod_CN.esp"
@@ -169,21 +170,21 @@ JSON 格式的字符串数组：
 ```json
 {
   "editor_id": "IronSword",
-  "form_id": "00012BB7|Skyrim.esm", 
-  "original_text": "Iron Sword",
+  "form_id": "00012BB7|Skyrim.esm",
+  "text": "Iron Sword",
   "record_type": "WEAP",
   "subrecord_type": "FULL",
-  "index": null
+  "index": 0
 }
 ```
 
 ### 字段说明
 - `editor_id`: 编辑器 ID
-- `form_id`: FormID|主文件名  
-- `original_text`: 原始文本（提取时为原文，应用翻译时修改为译文）
+- `form_id`: FormID|主文件名
+- `text`: 文本内容（提取时为原文，应用翻译时为译文）
 - `record_type`: 记录类型（如 WEAP、NPC_、BOOK）
 - `subrecord_type`: 子记录类型（如 FULL、DESC）
-- `index`: 索引（仅用于 INFO/QUST/PERK 等特殊记录）
+- `index`: 同类型子记录索引（从 0 开始）
 
 ### 匹配机制
 应用翻译时使用 **四重匹配** 确保精确性：
@@ -341,6 +342,44 @@ cargo doc --open
 
 ## 📝 版本历史
 
+### v0.6.0 (2025-11-18) - BSA Fallback 与字段优化 📦
+
+**重要功能**
+- 📦 **BSA 归档 Fallback 机制**：当文件系统找不到 STRING 文件时，自动从 BSA 归档中提取
+  - 基于 `ba2` crate 实现 TES4 格式 BSA 读取
+  - 智能路径规范化（大小写容错、路径分隔符统一）
+  - 支持官方主文件特殊规则（Skyrim.esm 等共享 `Skyrim - Interface.bsa`）
+  - 优先级：文件系统 → BSA → 失败
+- ✅ **修复 AMMO.DESC 字段缺失**：在 `string_records.json` 中添加 AMMO 的 DESC 支持
+  - 修复前：只支持 AMMO.FULL
+  - 修复后：支持 AMMO.FULL + AMMO.DESC
+  - 影响：提升武器弹药类 Mod 的字符串提取完整性
+
+**字段命名优化**
+- 🔄 **ExtractedString 字段重命名**：`original_text` → `text`
+  - 更简洁、更直观的 API
+  - 统一字段语义：提取时为原文，应用时为译文
+- 📝 **新增 index 字段**：用于同类型子记录的索引区分（v0.5.1 引入）
+
+**测试验证**
+- ✅ ccbgssse002-exoticarrows.esl：成功从 BSA 提取 59 个字符串
+  - STRINGS: 44 个
+  - DLSTRINGS: 15 个（含 2 个 AMMO.DESC）
+  - ILSTRINGS: 0 个
+- 🎯 100% 提取率，与官方翻译器结果一致
+
+**架构改进**
+- 新增 `src/bsa/` 模块：
+  - `BsaArchive`: 底层 BSA 文件访问
+  - `BsaStringsProvider`: STRING 文件专用提取器
+- 集成到 `LoadedPlugin::load_auto()` 工作流
+- CLI 工具自动启用 BSA fallback
+
+**依赖更新**
+- 新增：`ba2 = "3"` - Bethesda 归档文件解析
+
+---
+
 ### v0.5.2 (2025-11-14) - 性能一致性优化 ⚡
 
 **关键修复**
@@ -439,6 +478,6 @@ cargo doc --open
 
 ---
 
-**当前版本**: v0.5.2
-**稳定性**: 稳定（已通过性能测试和多文件验证）
-**推荐用途**: Mod 翻译、数据提取、批量处理
+**当前版本**: v0.6.0
+**稳定性**: 稳定（已通过 BSA fallback 测试和多文件验证）
+**推荐用途**: Mod 翻译、数据提取、批量处理、BSA 归档字符串提取
