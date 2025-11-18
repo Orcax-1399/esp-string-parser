@@ -6,12 +6,13 @@ use super::{BsaArchive, BsaError};
 use std::path::Path;
 
 /// 官方主文件列表（这些文件共享 "Skyrim - Interface.bsa"）
+/// 注意：不含扩展名，因为 plugin_name 来自 file_stem()
 const OFFICIAL_MASTER_FILES: &[&str] = &[
-    "skyrim.esm",
-    "update.esm",
-    "dawnguard.esm",
-    "dragonborn.esm",
-    "hearthfires.esm",
+    "skyrim",
+    "update",
+    "dawnguard",
+    "dragonborn",
+    "hearthfires",
 ];
 
 /// 从 BSA 中提取 Strings 文件的专用接口
@@ -156,15 +157,16 @@ mod tests {
 
     #[test]
     fn test_is_official_master() {
-        assert!(BsaStringsProvider::is_official_master("Skyrim.esm"));
-        assert!(BsaStringsProvider::is_official_master("skyrim.esm"));
-        assert!(BsaStringsProvider::is_official_master("SKYRIM.ESM"));
-        assert!(BsaStringsProvider::is_official_master("Update.esm"));
-        assert!(BsaStringsProvider::is_official_master("Dawnguard.esm"));
-        assert!(BsaStringsProvider::is_official_master("Dragonborn.esm"));
-        assert!(BsaStringsProvider::is_official_master("HearthFires.esm"));
+        // plugin_name 来自 file_stem()，不含扩展名
+        assert!(BsaStringsProvider::is_official_master("Skyrim"));
+        assert!(BsaStringsProvider::is_official_master("skyrim"));
+        assert!(BsaStringsProvider::is_official_master("SKYRIM"));
+        assert!(BsaStringsProvider::is_official_master("Update"));
+        assert!(BsaStringsProvider::is_official_master("Dawnguard"));
+        assert!(BsaStringsProvider::is_official_master("Dragonborn"));
+        assert!(BsaStringsProvider::is_official_master("HearthFires"));
 
-        assert!(!BsaStringsProvider::is_official_master("MyMod.esp"));
-        assert!(!BsaStringsProvider::is_official_master("CustomContent.esm"));
+        assert!(!BsaStringsProvider::is_official_master("MyMod"));
+        assert!(!BsaStringsProvider::is_official_master("CustomContent"));
     }
 }
