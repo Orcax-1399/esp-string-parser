@@ -109,13 +109,57 @@ impl StringFile {
     /// 从文件路径创建新的字符串文件实例
     pub fn new(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let (plugin_name, language, file_type) = Self::parse_filename(&path)?;
-        
+
         if !path.exists() {
             return Err(format!("字符串文件不存在: {:?}", path).into());
         }
-        
-        let entries = Self::parse_file(&path, &file_type)?;
-        
+
+        let data = fs::read(&path)?;
+        let entries = Self::parse_bytes(&data, &file_type)?;
+
+        Ok(StringFile {
+            path,
+            file_type,
+            language,
+            plugin_name,
+            entries,
+        })
+    }
+
+    /// 从内存字节数组创建字符串文件实例
+    ///
+    /// # 参数
+    /// * `data` - STRING 文件的字节数据
+    /// * `plugin_name` - 插件名称（例如："Skyrim"）
+    /// * `language` - 语言标识（例如："english", "chinese"）
+    /// * `file_type` - STRING 文件类型（STRINGS/DLSTRINGS/ILSTRINGS）
+    ///
+    /// # 示例
+    /// ```rust,ignore
+    /// let data: Vec<u8> = get_string_file_from_network();
+    /// let strings = StringFile::from_bytes(
+    ///     &data,
+    ///     "Skyrim".to_string(),
+    ///     "english".to_string(),
+    ///     StringFileType::STRINGS
+    /// )?;
+    /// ```
+    pub fn from_bytes(
+        data: &[u8],
+        plugin_name: String,
+        language: String,
+        file_type: StringFileType,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let entries = Self::parse_bytes(data, &file_type)?;
+
+        // 使用虚拟路径（内存加载时没有实际路径）
+        let path = PathBuf::from(format!(
+            "<memory>:{}_{}.{}",
+            plugin_name,
+            language,
+            file_type.to_extension()
+        ));
+
         Ok(StringFile {
             path,
             file_type,
@@ -152,9 +196,8 @@ impl StringFile {
         Ok((plugin_name, language, file_type))
     }
     
-    /// 解析字符串文件
-    fn parse_file(path: &Path, file_type: &StringFileType) -> Result<HashMap<u32, StringEntry>, Box<dyn std::error::Error>> {
-        let data = fs::read(path)?;
+    /// 解析字符串文件字节数据
+    fn parse_bytes(data: &[u8], file_type: &StringFileType) -> Result<HashMap<u32, StringEntry>, Box<dyn std::error::Error>> {
         if data.len() < 8 {
             return Err(EspError::InvalidFormat.into());
         }
@@ -212,7 +255,7 @@ impl StringFile {
 
         #[cfg(debug_assertions)]
         if skipped_count > 0 {
-            println!("[parse_file] 警告：跳过了 {} 个无效偏移量的字符串（文件头声明{}个，实际解析{}个）",
+            println!("[parse_bytes] 警告：跳过了 {} 个无效偏移量的字符串（文件头声明{}个，实际解析{}个）",
                 skipped_count, string_count, entries.len());
         }
 
@@ -488,6 +531,48 @@ impl StringFileSet {
         }
     }
     
+    /// 从内存字节数据创建字符串文件集合
+    ///
+    /// # 参数
+    /// * `files_data` - 各类型 STRING 文件的字节数据映射
+    /// * `plugin_name` - 插件名称
+    /// * `language` - 语言标识
+    ///
+    /// # 示例
+    /// ```rust,ignore
+    /// use std::collections::HashMap;
+    /// use esp_extractor::string_file::{StringFileSet, StringFileType};
+    ///
+    /// let mut files_data = HashMap::new();
+    /// files_data.insert(StringFileType::STRINGS, strings_bytes);
+    /// files_data.insert(StringFileType::ILSTRINGS, ilstrings_bytes);
+    ///
+    /// let set = StringFileSet::from_memory(
+    ///     files_data,
+    ///     "Skyrim".to_string(),
+    ///     "english".to_string()
+    /// )?;
+    /// ```
+    pub fn from_memory(
+        files_data: HashMap<StringFileType, &[u8]>,
+        plugin_name: String,
+        language: String,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut set = StringFileSet::new(plugin_name.clone(), language.clone());
+
+        for (file_type, data) in files_data {
+            let string_file = StringFile::from_bytes(
+                data,
+                plugin_name.clone(),
+                language.clone(),
+                file_type,
+            )?;
+            set.files.insert(file_type, string_file);
+        }
+
+        Ok(set)
+    }
+
     /// 加载指定目录下的所有字符串文件
     ///
     /// 支持大小写不敏感的文件名匹配，会尝试以下变体：
@@ -902,5 +987,69 @@ mod tests {
 
             println!("✓ 读写循环测试通过！所有验证成功");
         }
+    }
+
+    #[test]
+    fn test_from_bytes() {
+        // 创建测试数据
+        let test_file = create_test_string_file();
+
+        // 序列化为字节数组
+        let bytes = test_file.rebuild().unwrap();
+
+        // 从字节数组重新创建
+        let loaded_file = StringFile::from_bytes(
+            &bytes,
+            "TestPlugin".to_string(),
+            "english".to_string(),
+            StringFileType::STRINGS,
+        ).unwrap();
+
+        // 验证加载的文件
+        assert_eq!(loaded_file.plugin_name, "TestPlugin");
+        assert_eq!(loaded_file.language, "english");
+        assert_eq!(loaded_file.file_type, StringFileType::STRINGS);
+        assert_eq!(loaded_file.count(), test_file.count());
+
+        // 验证字符串内容
+        assert_eq!(loaded_file.get_string(1).unwrap().content, "Iron Sword");
+        assert_eq!(loaded_file.get_string(2).unwrap().content, "Steel Dagger");
+
+        println!("✓ from_bytes 测试通过！");
+    }
+
+    #[test]
+    fn test_string_file_set_from_memory() {
+        // 创建测试文件
+        let strings_file = create_test_string_file();
+
+        // 序列化为字节数组
+        let strings_bytes = strings_file.rebuild().unwrap();
+
+        // 创建内存数据映射
+        let mut files_data = HashMap::new();
+        files_data.insert(StringFileType::STRINGS, strings_bytes.as_slice());
+
+        // 从内存创建集合
+        let set = StringFileSet::from_memory(
+            files_data,
+            "TestMod".to_string(),
+            "chinese".to_string(),
+        ).unwrap();
+
+        // 验证集合属性
+        assert_eq!(set.plugin_name, "TestMod");
+        assert_eq!(set.language, "chinese");
+        assert_eq!(set.files.len(), 1);
+
+        // 验证文件加载正确
+        assert!(set.get_file(&StringFileType::STRINGS).is_some());
+
+        // 验证字符串可以正常访问
+        let string1 = set.get_string_by_type(StringFileType::STRINGS, 1);
+        assert!(string1.is_some());
+        assert_eq!(string1.unwrap().content, "Iron Sword");
+
+        println!("✓ StringFileSet::from_memory 测试通过！");
     }
 } 

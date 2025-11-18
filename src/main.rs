@@ -305,14 +305,14 @@ fn apply_translations(cli: &Cli, translations: Vec<ExtractedString>) -> Result<(
         
         // 显示前3个翻译条目的详细信息
         for (i, translation) in translations.iter().take(3).enumerate() {
-            println!("翻译条目 {}: [{}] {} -> \"{}\"", 
+            println!("翻译条目 {}: [{}] {} -> \"{}\"",
                 i + 1,
                 translation.form_id,
                 translation.get_string_type(),
-                if translation.original_text.chars().count() > 50 {
-                    format!("{}...", translation.original_text.chars().take(50).collect::<String>())
+                if translation.text.chars().count() > 50 {
+                    format!("{}...", translation.text.chars().take(50).collect::<String>())
                 } else {
-                    translation.original_text.clone()
+                    translation.text.clone()
                 }
             );
         }
@@ -388,14 +388,14 @@ fn print_extraction_summary(_plugin: &Plugin, strings: &[ExtractedString], outpu
     if !strings.is_empty() {
         println!("\n样例字符串:");
         for (i, string) in strings.iter().take(3).enumerate() {
-            println!("{}. [{}] {}: \"{}\"", 
-                i + 1, 
-                string.form_id, 
-                string.get_string_type(), 
-                if string.original_text.chars().count() > 50 {
-                    format!("{}...", string.original_text.chars().take(50).collect::<String>())
+            println!("{}. [{}] {}: \"{}\"",
+                i + 1,
+                string.form_id,
+                string.get_string_type(),
+                if string.text.chars().count() > 50 {
+                    format!("{}...", string.text.chars().take(50).collect::<String>())
                 } else {
-                    string.original_text.clone()
+                    string.text.clone()
                 }
             );
         }

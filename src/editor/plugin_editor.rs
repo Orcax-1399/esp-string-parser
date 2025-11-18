@@ -111,8 +111,8 @@ impl PluginEditor {
                     trans.editor_id.clone(),
                 ),
                 subrecord_type: trans.get_string_type(),
-                old_value: trans.original_text.clone(),
-                new_value: trans.translated_text.clone().unwrap_or_default(),
+                old_value: String::new(), // 旧值未知（库只负责提取/写入）
+                new_value: trans.text.clone(),
                 applied_at: std::time::Instant::now(),
             };
             self.modifications.add_change(change);
@@ -123,7 +123,7 @@ impl PluginEditor {
 
     /// 从唯一键中提取 FormID
     ///
-    /// 唯一键格式："{editor_id}|{form_id}|{record_type} {subrecord_type}"
+    /// 唯一键格式："{editor_id}|{form_id}|{record_type} {subrecord_type}|{index}"
     fn extract_form_id_from_key(&self, key: &str) -> u32 {
         // 解析 FormID（格式：00001234|PluginName.esp）
         let parts: Vec<&str> = key.split('|').collect();

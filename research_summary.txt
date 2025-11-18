@@ -1,0 +1,225 @@
+ESP字符串解析库API使用指南总结
+
+========== 一、定位特定条目的API ==========
+
+1. 按FormID查找记录
+   位置: src/record.rs 第330行
+   API: record.get_form_id() -> u32
+   方式: 遍历plugin.groups并调用group.get_records()
+
+2. 按EditorID查找记录
+   位置: src/record.rs 第350行
+   API: record.get_editor_id() -> Option<String>
+   实现: 查找EDID子记录并解析字符串
+
+3. 查找子记录
+   位置: src/record.rs 第339-347行
+   API: 
+     - find_subrecord(type) -> Option<&Subrecord>
+     - find_subrecords(type) -> Vec<&Subrecord>
+
+4. 按字符串内容查找
+   位置: src/string_file.rs 第326-330行
+   API: find_strings_containing(text) -> Vec<&StringEntry>
+
+5. 遍历所有可翻译字符串
+   位置: src/plugin.rs 第340-346行
+   API: plugin.extract_strings() -> Vec<ExtractedString>
+   特点: 使用并行处理(rayon库)
+
+========== 二、修改条目的API ==========
+
+1. 修改Record中的字段值
+   位置: src/record.rs 第375-378行
+   步骤:
+     a. 修改record.subrecords中的Subrecord的data字段
+     b. 更新该Subrecord的size字段
+     c. 调用record.mark_modified()
+
+2. 修改STRING文件中的字符串
+   位置: src/string_file.rs 第333-365行
+   API:
+     - update_string(id, content) -> Result<(), EspError>
+     - update_strings(map) -> Result<(), EspError>
+
+3. 修改ESP记录中的字符串字段
+   位置: src/editor/plugin_editor.rs 第82-122行
+   方式A: 使用PluginEditor.apply_translations()
+   方式B: 直接修改subrecord.data并调用mark_modified()
+
+========== 三、核心API总表 ==========
+
+Plugin API (src/plugin.rs):
+  - load(path) - 加载ESP文件 [88行]
+  - extract_strings() - 提取所有字符串 [340行]
+  - get_name() - 获取插件名称 [546行]
+  - is_localized() - 检查是否本地化 [569行]
+  - is_light() - 检查是否ESL [588行]
+  - get_stats() - 获取统计信息 [602行]
+  - write_to_file(path) - 保存到文件 [976行]
+  - set_string_files(set) - 设置STRING文件 [577行]
+
+Record API (src/record.rs):
+  - get_form_id() - 获取FormID [330行]
+  - get_editor_id() - 获取EditorID [350行]
+  - get_type() - 获取记录类型 [325行]
+  - get_flags() - 获取标志位 [335行]
+  - find_subrecord(type) - 查找子记录 [340行]
+  - find_subrecords(type) - 查找多个子记录 [345行]
+  - mark_modified() - 标记为已修改 [376行]
+
+StringFile API (src/string_file.rs):
+  - new(path) - 加载STRING文件 [110行]
+  - get_string(id) - 获取字符串 [277行]
+  - get_string_ids() - 获取所有ID [282行]
+  - find_strings_containing(text) - 搜索字符串 [326行]
+  - update_string(id, content) - 更新字符串 [333行]
+  - update_strings(map) - 批量更新 [348行]
+  - add_string(id, content) - 添加新字符串 [356行]
+  - remove_string(id) - 删除字符串 [367行]
+  - write_to_file(path) - 保存到文件 [437行]
+
+StringFileSet API (src/string_file.rs):
+  - load_from_directory(dir,plugin,lang) - 加载整个集合 [497行]
+  - get_file(type) - 获取特定类型 [538行]
+  - get_file_mut(type) - 获取可变引用 [543行]
+  - get_string(id) - 从任何文件获取 [553行]
+  - get_string_by_type(type, id) - 从特定类型获取 [585行]
+  - update_string(type, id, content) - 更新字符串 [590行]
+  - write_all(dir) - 保存所有文件 [616行]
+
+PluginEditor API (src/editor/plugin_editor.rs):
+  - new(plugin) - 创建编辑器 [52行]
+  - apply_translation(trans) - 应用单个翻译 [66行]
+  - apply_translations(trans) - 批量应用翻译 [82行]
+  - is_modified() - 检查是否有修改 [139行]
+  - modified_count() - 获取修改数量 [144行]
+  - save(writer, path) - 保存到文件 [178行]
+  - plugin() - 获取Plugin引用 [204行]
+
+LoadedPlugin API (src/plugin_loader.rs):
+  - load_auto(path, language) - 智能加载 [48行]
+  - extract_strings() - 提取字符串 [114行]
+  - plugin() - 获取Plugin引用 [84行]
+  - into_plugin() - 转移Plugin所有权 [95行]
+  - is_localized() - 检查是否本地化 [106行]
+
+LocalizedPluginContext API (src/localized_context.rs):
+  - load(path, lang) - 加载本地化插件 [60行]
+  - new_with_plugin(plugin,path,lang) - 使用已加载Plugin [116行]
+  - plugin() - 获取Plugin引用 [206行]
+  - plugin_mut() - 获取Plugin可变引用 [211行]
+  - string_files() - 获取StringFileSet引用 [216行]
+  - string_files_mut() - 获取可变引用 [221行]
+  - save_string_files(dir) - 保存STRING文件 [242行]
+
+Group API (src/group.rs):
+  - get_records() - 获取所有记录 [186行]
+  - get_type() - 获取组类型 [181行]
+  - get_label() - 获取组标签 [176行]
+
+ExtractedString API (src/string_types.rs):
+  - new(...) - 创建提取字符串 [27行]
+  - new_with_index(...) - 创建带索引的字符串 [46行]
+  - get_unique_key() - 生成唯一标识符 [76行]
+  - get_text_to_apply() - 获取要应用的文本 [66行]
+  - get_string_type() - 获取字符串类型 [71行]
+
+========== 四、使用模式示例 ==========
+
+模式1: 查找和修改单个记录
+  1. 加载Plugin: plugin = Plugin::load(path)?
+  2. 遍历获取records: groups.iter().flat_map(|g| g.get_records())
+  3. 按条件查找(FormID/EditorID等)
+  4. 修改subrecord.data
+  5. 调用record.mark_modified()
+  6. 保存: plugin.write_to_file(output_path)?
+
+模式2: 批量修改(使用PluginEditor)
+  1. 加载: loaded = LoadedPlugin::load_auto(path, lang)?
+  2. 提取: strings = loaded.extract_strings()
+  3. 修改: strings[i].translated_text = Some(new_text)
+  4. 创建编辑器: editor = PluginEditor::new(plugin)
+  5. 应用: editor.apply_translations(strings)?
+  6. 保存: editor.save(&writer, output_path)?
+
+模式3: 修改本地化插件
+  1. 加载: context = LocalizedPluginContext::load(path, lang)?
+  2. 获取文件: string_files = context.string_files_mut()
+  3. 更新: string_files.update_string(type, id, content)?
+  4. 保存: context.save_string_files(output_dir)?
+
+========== 五、关键数据结构 ==========
+
+ExtractedString:
+  - editor_id: Option<String>       // 编辑器ID
+  - form_id: String                 // 完整FormID
+  - original_text: String           // 原始文本
+  - translated_text: Option<String> // 翻译文本
+  - record_type: String             // 记录类型
+  - subrecord_type: String          // 子记录类型
+  - index: Option<i32>              // 特殊记录索引
+
+StringEntry:
+  - id: u32                    // 字符串ID
+  - content: String           // 字符串内容
+  - raw_data: Vec<u8>         // 原始字节
+  - directory_address: u64    // 目录位置
+  - absolute_offset: u64      // 绝对偏移
+  - length: Option<u32>       // 长度
+
+Record:
+  - record_type: String       // 类型字符串
+  - form_id: u32             // FormID
+  - subrecords: Vec<Subrecord> // 子记录列表
+  - is_modified: bool        // 是否已修改
+
+Subrecord:
+  - record_type: String       // 类型
+  - data: Vec<u8>            // 数据
+  - size: u16                // 大小
+
+========== 六、性能考虑 ==========
+
+1. 使用LoadedPlugin::load_auto() 自动优化加载
+2. extract_strings()使用rayon库并行处理
+3. Plugin::load()使用memmap2内存映射
+4. 尽量使用引用而非克隆
+
+========== 七、文件快速查询 ==========
+
+核心模块位置:
+  - src/plugin.rs         - Plugin主要实现 (1320行)
+  - src/record.rs         - Record和子记录处理 (497行)
+  - src/group.rs          - Group和树状结构
+  - src/string_file.rs    - STRING文件处理 (750+行)
+  - src/string_types.rs   - 提取字符串类型定义
+  - src/editor/          - 编辑器相关API
+  - src/plugin_loader.rs - 智能加载器
+  - src/localized_context.rs - 本地化插件处理
+  - examples/basic_usage.rs - 使用示例
+
+========== 八、常见问题解答 ==========
+
+Q1: 如何按FormID查找记录?
+A: plugin.groups.iter().flat_map(|g| g.get_records())
+     .find(|r| r.get_form_id() == target_id)
+
+Q2: 如何修改字符串?
+A: 普通插件:
+     record.subrecords.iter_mut()
+       .find(|s| s.record_type == "FULL")
+       .map(|s| s.data = new_value)
+   本地化插件:
+     string_files.update_string(type, id, content)?
+
+Q3: 如何区分普通和本地化插件?
+A: plugin.is_localized() -> bool
+
+Q4: 如何保存修改?
+A: plugin.write_to_file(path)?
+
+Q5: 为什么某些字符串是StringID而非文本?
+A: 插件是本地化但STRING文件加载失败
+   检查: context.string_files().files.len()
+

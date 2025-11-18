@@ -4,7 +4,7 @@ use crate::group::{Group, GroupChild};
 use crate::string_types::ExtractedString;
 use crate::string_file::{StringFileSet, StringFileType};
 use crate::utils::{is_valid_string, EspError};
-use crate::special_records::SpecialRecordHandler;
+// SpecialRecordHandler 已简化，不再需要在 plugin.rs 中使用
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::io::{Cursor, Read};
@@ -362,6 +362,8 @@ impl Plugin {
     }
     
     /// 从记录中提取字符串
+    ///
+    /// 所有 string subrecord 都按出现顺序分配索引（0, 1, 2...）
     fn extract_record_strings(&self, record: &Record) -> Vec<ExtractedString> {
         let mut strings = Vec::new();
 
@@ -373,45 +375,17 @@ impl Plugin {
         let editor_id = record.get_editor_id();
         let form_id_str = self.format_form_id(record.form_id);
 
-        // 检查是否需要特殊处理
-        if SpecialRecordHandler::requires_special_handling(&record.record_type) {
-            // 获取特殊索引映射
-            let special_indices = SpecialRecordHandler::get_special_indices(record);
-            let index_map: HashMap<String, i32> = special_indices.into_iter().collect();
+        // 全局索引计数器：按 subrecord 在 record.subrecords 中的出现顺序
+        let mut index = 0i32;
 
-            // 为特殊记录，使用索引来处理
-            let mut current_indices: HashMap<String, i32> = HashMap::new();
-
-            for subrecord in &record.subrecords {
-                if string_types.contains(&subrecord.record_type) {
-                    // 获取该子记录类型的索引
-                    let index = if let Some(&special_idx) = index_map.get(&subrecord.record_type) {
-                        special_idx
-                    } else {
-                        // 如果不在特殊映射中，使用计数器
-                        let count = current_indices.entry(subrecord.record_type.clone()).or_insert(0);
-                        let idx = *count;
-                        *count += 1;
-                        idx
-                    };
-
-                    if let Some(extracted) = self.extract_string_from_subrecord_with_index(
-                        subrecord, &editor_id, &form_id_str, &record.record_type, Some(index)
-                    ) {
-                        strings.push(extracted);
-                    }
+        for subrecord in &record.subrecords {
+            if string_types.contains(&subrecord.record_type) {
+                if let Some(extracted) = self.extract_string_from_subrecord_with_index(
+                    subrecord, &editor_id, &form_id_str, &record.record_type, index
+                ) {
+                    strings.push(extracted);
                 }
-            }
-        } else {
-            // 普通记录：无索引
-            for subrecord in &record.subrecords {
-                if string_types.contains(&subrecord.record_type) {
-                    if let Some(extracted) = self.extract_string_from_subrecord_with_index(
-                        subrecord, &editor_id, &form_id_str, &record.record_type, None
-                    ) {
-                        strings.push(extracted);
-                    }
-                }
+                index += 1; // 每个 string subrecord 递增
             }
         }
 
@@ -419,13 +393,15 @@ impl Plugin {
     }
     
     /// 从子记录中提取字符串（带索引支持）
+    ///
+    /// 所有字段都有 index 参数，按 Record 内的顺序分配
     fn extract_string_from_subrecord_with_index(
         &self,
         subrecord: &crate::subrecord::Subrecord,
         editor_id: &Option<String>,
         form_id_str: &str,
         record_type: &str,
-        index: Option<i32>,
+        index: i32,
     ) -> Option<ExtractedString> {
         let raw_string = if self.is_localized() {
             // 本地化插件：数据是字符串ID（前4字节）
@@ -505,26 +481,15 @@ impl Plugin {
         };
 
         if is_valid_string(&raw_string.content) {
-            if let Some(idx) = index {
-                // 带索引（特殊记录）
-                Some(ExtractedString::new_with_index(
-                    editor_id.clone(),
-                    form_id_str.to_string(),
-                    record_type.to_string(),
-                    subrecord.record_type.clone(),
-                    raw_string.content,
-                    idx,
-                ))
-            } else {
-                // 无索引（普通记录）
-                Some(ExtractedString::new(
-                    editor_id.clone(),
-                    form_id_str.to_string(),
-                    record_type.to_string(),
-                    subrecord.record_type.clone(),
-                    raw_string.content,
-                ))
-            }
+            // 所有字段都有索引
+            Some(ExtractedString::new(
+                editor_id.clone(),
+                form_id_str.to_string(),
+                record_type.to_string(),
+                subrecord.record_type.clone(),
+                raw_string.content,
+                index,
+            ))
         } else {
             None
         }
@@ -817,7 +782,9 @@ impl Plugin {
         Ok(())
     }
 
-    /// 从记录中构建StringID映射
+    /// 从记录构建 StringID 映射（用于本地化插件）
+    ///
+    /// 使用与提取逻辑完全一致的全局索引计数器
     fn build_string_id_map_from_record(
         &self,
         record: &crate::record::Record,
@@ -830,14 +797,8 @@ impl Plugin {
         // 获取支持的字符串子记录类型
         let valid_subrecord_types = self.string_records.get(&record.record_type);
 
-        // 检查是否需要特殊处理
-        let special_indices = if SpecialRecordHandler::requires_special_handling(&record.record_type) {
-            Some(SpecialRecordHandler::get_special_indices(record))
-        } else {
-            None
-        };
-
-        let mut current_indices: HashMap<String, i32> = HashMap::new();
+        // 全局索引计数器（与提取/应用逻辑完全一致）
+        let mut index = 0i32;
 
         for subrecord in &record.subrecords {
             if let Some(types) = valid_subrecord_types {
@@ -851,47 +812,20 @@ impl Plugin {
                             &subrecord.record_type,
                         );
 
-                        // 计算索引（如果是特殊记录）
-                        let index = if let Some(ref indices) = special_indices {
-                            // 特殊记录：查找预定义的索引
-                            indices.iter()
-                                .find(|(st, _)| st == &subrecord.record_type)
-                                .map(|(_, idx)| *idx)
-                                .or_else(|| {
-                                    // 如果找不到，使用计数器
-                                    let count = current_indices.entry(subrecord.record_type.clone()).or_insert(0);
-                                    let idx = *count;
-                                    *count += 1;
-                                    Some(idx)
-                                })
-                        } else {
-                            None
-                        };
-
-                        // 构建唯一键
-                        let key = if let Some(idx) = index {
-                            // 特殊记录：包含索引
-                            format!(
-                                "{}|{}|{} {}|{}",
-                                editor_id.as_deref().unwrap_or(""),
-                                form_id_str,
-                                record.record_type,
-                                subrecord.record_type,
-                                idx
-                            )
-                        } else {
-                            // 普通记录：无索引
-                            format!(
-                                "{}|{}|{} {}",
-                                editor_id.as_deref().unwrap_or(""),
-                                form_id_str,
-                                record.record_type,
-                                subrecord.record_type
-                            )
-                        };
+                        // 构建唯一键（所有字段都包含索引）
+                        let key = format!(
+                            "{}|{}|{} {}|{}",
+                            editor_id.as_deref().unwrap_or(""),
+                            form_id_str,
+                            record.record_type,
+                            subrecord.record_type,
+                            index
+                        );
 
                         map.insert(key, (file_type, string_id));
                     }
+
+                    index += 1; // 每个 string subrecord 递增
                 }
             }
         }
@@ -1144,6 +1078,8 @@ fn apply_translations_to_group(
 }
 
 /// 对记录应用翻译
+///
+/// 使用与提取逻辑完全一致的全局索引计数器，确保索引匹配正确
 fn apply_translations_to_record(
     record: &mut Record,
     translations: &HashMap<String, ExtractedString>,
@@ -1155,31 +1091,37 @@ fn apply_translations_to_record(
         Some(types) => types,
         None => return Ok(0),
     };
-    
+
     let editor_id = record.get_editor_id();
     let form_id_str = format_form_id_helper(record.form_id, masters, plugin_name);
-    
+
     let mut modified = false;
     let mut applied_count = 0;
-    
+
+    // 全局索引计数器（与提取逻辑完全一致）
+    let mut index = 0i32;
+
     for subrecord in &mut record.subrecords {
         if string_types.contains(&subrecord.record_type) {
             let string_type = format!("{} {}", record.record_type, subrecord.record_type);
-            let key = format!("{}|{}|{}", 
+            // 构建带索引的 key（所有字段都包含 index）
+            let key = format!("{}|{}|{}|{}",
                 editor_id.as_deref().unwrap_or(""),
                 form_id_str,
-                string_type
+                string_type,
+                index
             );
-            
+
             #[cfg(debug_assertions)]
-            println!("尝试匹配键: {}", key);
-            
+            println!("尝试匹配键（index={}）: {}", index, key);
+
             if let Some(translation) = translations.get(&key) {
                 let text_to_apply = translation.get_text_to_apply();
                 if !text_to_apply.is_empty() {
 
                     #[cfg(debug_assertions)]
-                    println!("✓ 成功应用翻译: [{}] {} -> \"{}\"",
+                    println!("✓ 成功应用翻译（index={}）: [{}] {} -> \"{}\"",
+                        index,
                         translation.form_id,
                         translation.get_string_type(),
                         if text_to_apply.chars().count() > 50 {
@@ -1196,13 +1138,15 @@ fn apply_translations_to_record(
                     applied_count += 1;
                 }
             }
+
+            index += 1; // 每个 string subrecord 递增
         }
     }
-    
+
     if modified {
         record.mark_modified();
     }
-    
+
     Ok(applied_count)
 }
 
