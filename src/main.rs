@@ -1,7 +1,4 @@
 //! ESP 字符串提取工具 CLI
-//!
-//! 注意：CLI 代码暂时保留使用旧 API (Plugin::new)，将在未来版本迁移
-#![allow(deprecated)]
 #![allow(clippy::ptr_arg)]
 #![allow(clippy::useless_asref)]
 
@@ -19,7 +16,7 @@ use esp_extractor::EspDebugger;
 #[derive(Parser)]
 #[command(name = "esp_extractor")]
 #[command(about = "从ESP/ESM/ESL文件中提取可翻译字符串，或解析Bethesda字符串文件")]
-#[command(version = "0.2.0")]
+#[command(version = "0.6.0")]
 struct Cli {
     /// 输入文件路径（ESP/ESM/ESL或字符串文件）
     #[arg(short, long)]
@@ -188,7 +185,7 @@ fn handle_eslify(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 加载插件
-    let mut plugin = Plugin::new(cli.input.clone(), None)?;
+    let mut plugin = Plugin::load(cli.input.clone())?;
 
     // 检查是否已经是轻量插件
     if plugin.is_light() {
@@ -431,7 +428,7 @@ fn get_apply_output_path(cli: &Cli) -> PathBuf {
 
 /// 测试文件重建功能
 fn test_rebuild_file(input_path: PathBuf, output_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = Plugin::new(input_path.clone(), None)?;
+    let plugin = Plugin::load(input_path.clone())?;
     
     #[cfg(debug_assertions)]
     {
@@ -462,7 +459,7 @@ fn generate_debug_info(plugin: &Plugin, input_path: &PathBuf, output_path: &Path
     
     // 解析重建文件并生成dump
     plugin.write_to_file(output_path.clone())?;
-    let rebuilt_plugin = Plugin::new(output_path.clone(), None)?;
+    let rebuilt_plugin = Plugin::load(output_path.clone())?;
     
     let rebuilt_dump_path = output_path.with_extension("rebuilt.dump");
     println!("生成重建文件结构dump: {:?}", rebuilt_dump_path);
@@ -523,8 +520,8 @@ fn handle_file_comparison(cli: &Cli, compare_file: &PathBuf) -> Result<(), Box<d
         println!("  文件2: {:?}", compare_file);
     }
     
-    let plugin1 = Plugin::new(cli.input.clone(), None)?;
-    let plugin2 = Plugin::new(compare_file.clone(), None)?;
+    let plugin1 = Plugin::load(cli.input.clone())?;
+    let plugin2 = Plugin::load(compare_file.clone())?;
     
     // 对比基本信息
     println!("\n=== 基本信息对比 ===");

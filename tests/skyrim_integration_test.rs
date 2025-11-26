@@ -175,7 +175,7 @@ fn test_skyrim_with_string_files() {
 
     // 检查是否有带索引的字符串（特殊记录）
     let indexed_strings = strings.iter()
-        .filter(|s| s.index.is_some())
+        .filter(|s| s.index >= 0)
         .count();
 
     println!("  - 带索引的字符串数量: {} (特殊记录)", indexed_strings);
@@ -187,10 +187,10 @@ fn test_skyrim_with_string_files() {
             i + 1,
             string.record_type,
             string.subrecord_type,
-            string.original_text.chars().take(50).collect::<String>()
+            string.text.chars().take(50).collect::<String>()
         );
-        if let Some(idx) = string.index {
-            println!("       (索引: {})", idx);
+        if string.index >= 0 {
+            println!("       (索引: {})", string.index);
         }
     }
 
@@ -346,7 +346,7 @@ fn count_special_records(
     for child in &group.children {
         match child {
             GroupChild::Record(record) => {
-                if SpecialRecordHandler::requires_special_handling(&record.record_type) {
+                if SpecialRecordHandler::MULTI_FIELD_TYPES.contains(&record.record_type.as_str()) {
                     *counts.entry(record.record_type.clone()).or_insert(0) += 1;
                 }
             }

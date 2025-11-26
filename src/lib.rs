@@ -66,6 +66,9 @@ pub mod plugin_loader;
 // BSA 归档访问层（v0.5.2 新增）
 pub mod bsa;
 
+// 字符串路由模块（v0.6.0 新增 - P2.3）
+pub mod string_routes;
+
 // 调试模块（仅在debug模式下可用）
 #[cfg(debug_assertions)]
 pub mod debug;
@@ -73,7 +76,7 @@ pub mod debug;
 // === 公共接口导出 ===
 
 // 主要结构体
-pub use plugin::Plugin;
+pub use plugin::{Plugin, PluginStats};
 pub use record::Record;
 pub use group::{Group, GroupChild, GroupType};
 pub use subrecord::Subrecord;
@@ -99,6 +102,9 @@ pub use localized_context::LocalizedPluginContext;
 
 // 智能加载器导出（v0.4.0 新增）
 pub use plugin_loader::LoadedPlugin;
+
+// 字符串路由导出（v0.6.0 新增 - P2.3）
+pub use string_routes::{StringRouter, DefaultStringRouter};
 
 // 调试工具（仅debug模式）
 #[cfg(debug_assertions)]
