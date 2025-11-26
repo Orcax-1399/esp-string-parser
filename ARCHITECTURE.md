@@ -237,8 +237,14 @@ esp_extractor/
 │   ├── RecordFlags           # 记录标志位
 │   └── read/write函数         # 字节序处理
 │
-├── plugin.rs                 # ESP插件解析器（核心）
-│   └── Plugin                # 顶层结构，管理整个文件
+├── plugin/                   # ESP插件解析器（核心）- v0.7.0 模块化
+│   ├── mod.rs                # Plugin 结构体和公共接口
+│   ├── parser.rs             # 加载和解析逻辑
+│   ├── strings.rs            # 字符串提取
+│   ├── translate.rs          # 翻译应用
+│   ├── writer.rs             # 文件写入
+│   ├── stats.rs              # 统计信息
+│   └── esl.rs                # ESL FormID 重编号
 │
 ├── record.rs                 # 记录解析
 │   └── Record                # 表示单个ESP记录
@@ -254,11 +260,32 @@ esp_extractor/
 ├── string_types.rs           # 提取字符串类型
 │   └── ExtractedString       # 提取的字符串结构
 │
-├── string_file.rs            # STRING文件处理
-│   ├── StringFile            # 单个STRING文件
-│   ├── StringFileSet         # 多个STRING文件集合
-│   ├── StringEntry           # 字符串条目
-│   └── StringFileType        # 文件类型枚举
+├── string_file/              # STRING文件处理 - v0.7.0 模块化
+│   ├── mod.rs                # 公共接口和基础类型
+│   ├── file.rs               # StringFile 结构体和方法
+│   ├── set.rs                # StringFileSet 集合操作
+│   ├── bsa.rs                # BSA fallback 逻辑
+│   ├── io.rs                 # 文件名解析工具
+│   └── tests.rs              # 测试模块
+│
+├── string_routes/            # 字符串路由模块 - v0.7.0 新增
+│   ├── mod.rs                # 公共接口导出
+│   ├── router.rs             # StringRouter trait 和实现
+│   └── data.rs               # 加载 string_records.json
+│
+├── io/                       # IO 抽象层 - v0.4.0 引入
+│   ├── mod.rs                # 公共接口
+│   ├── esp_io.rs             # EspReader/EspWriter trait
+│   └── string_io.rs          # StringFileReader/Writer trait
+│
+├── editor/                   # 编辑器层 - v0.4.0 引入
+│   ├── mod.rs                # PluginEditor
+│   └── delta.rs              # TranslationDelta 变更追踪
+│
+├── bsa/                      # BSA 归档支持 - v0.6.0 引入
+│   ├── mod.rs                # 公共接口
+│   ├── archive.rs            # BsaArchive
+│   └── strings_provider.rs   # BsaStringsProvider
 │
 ├── utils.rs                  # 工具函数
 │   ├── is_valid_string       # 字符串验证
@@ -1230,6 +1257,7 @@ hexdump -C MyMod.esp | head -100
 |------|------|---------|
 | 1.0 | 2025-11-12 | 初始版本，完整架构文档 |
 | 3.0 | 2025-11-13 | **本地化支持完整实现**：<br>- 添加STRING文件自动加载功能<br>- 实现StringID类型映射和查找<br>- 统一的翻译应用接口（自动判断本地化/非本地化）<br>- 支持多路径搜索和大小写不敏感匹配<br>- 测试验证：普通插件520个字符串，本地化插件808+219个字符串 |
+| 4.0 | 2025-11-27 | **代码架构重构 (v0.7.0)**：<br>- plugin.rs 拆分为 7 个子模块<br>- string_file.rs 拆分为 6 个子模块<br>- 新增 string_routes 模块（StringRouter trait）<br>- IO 抽象层增强（依赖注入支持）<br>- 模块组织更新，反映新目录结构 |
 
 ---
 

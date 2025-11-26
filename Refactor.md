@@ -41,11 +41,7 @@ src/plugin/
 - 易于维护：相关代码集中在一起
 - 测试稳定：所有现有测试继续工作
 
-## 待完成任务
-
-### P2: 代码拆分与架构优化
-
-#### 2.2 拆分 src/string_file.rs (1118 行) ✅ 已完成 - 2025-11-26
+### P2.2: 拆分 src/string_file.rs（已完成 - 2025-11-26）
 
 **目标**：分离字符串文件的不同职责
 
@@ -73,7 +69,7 @@ src/string_file/
 - 易于维护：相关代码集中在一起
 - 测试稳定：所有现有测试继续工作
 
-#### 2.3 提取字符串路由为独立模块 ✅ 已完成 - 2025-11-26
+### P2.3: 提取字符串路由为独立模块（已完成 - 2025-11-26）
 
 **目标**：将 `data/string_records.json` 的使用逻辑独立化
 
@@ -111,7 +107,7 @@ pub struct DefaultStringRouter {
 - 易于扩展：可自定义 StringRouter 实现
 - 向后兼容：旧代码继续工作
 
-#### 2.4 实现 IO 抽象层注入 ✅ 已完成 - 2025-11-26
+### P2.4: 实现 IO 抽象层注入（已完成 - 2025-11-26）
 
 **目标**：让核心流程通过 IO trait 而非直接使用 std::fs
 
@@ -170,92 +166,47 @@ impl StringFileSet {
 - 易于扩展：可实现网络 IO、内存 IO 等
 - 向后兼容：保留便捷方法
 
-### P3: Workspace 结构规划
+### P3: Workspace 结构规划 ❌ 已取消
 
-**目标**：将项目拆分为多个独立 crate，缩短编译链路
+**状态**：已取消 (2025-11-27)
 
-**方案**：
-```
-workspace/
-├── Cargo.toml                    # workspace 配置
-├── esp-format-core/              # 核心格式解析
-│   ├── src/
-│   │   ├── datatypes.rs
-│   │   ├── record.rs
-│   │   ├── group.rs
-│   │   ├── subrecord.rs
-│   │   └── utils.rs
-│   └── Cargo.toml
-├── bethesda-strings/             # 字符串文件处理
-│   ├── src/
-│   │   ├── string_file/
-│   │   └── bsa/
-│   └── Cargo.toml
-├── esp-extractor/                # 翻译/编辑器逻辑
-│   ├── src/
-│   │   ├── plugin/
-│   │   ├── editor/
-│   │   ├── localized_context.rs
-│   │   └── string_routes/
-│   └── Cargo.toml
-└── esp-extractor-cli/            # 纯二进制 crate
-    ├���─ src/
-    │   └── main.rs
-    └── Cargo.toml
-```
+**原因**：
+1. **功能单一**：这是一个专门处理 ESP 文件字符串的库，使用场景聚焦
+2. **维护成本**：多个 crate 意味着多套版本号管理和发布流程
+3. **收益有限**：~3000 行项目，workspace 带来的增量编译收益不明显
+4. **架构已优化**：P2 重构已达到良好的模块化状态
 
-**依赖关系**：
-```
-esp-extractor-cli
-    └── esp-extractor
-        ├── esp-format-core
-        └── bethesda-strings
-            └── esp-format-core (可选)
-```
-
-**优势**：
-- 独立编译和测试
-- 清晰的依赖边界
-- 可以单独发布 crate
-- 减少编译时间
-
-**实施步骤**：
-1. 创建 workspace Cargo.toml
-2. 创建 esp-format-core crate
-3. 创建 bethesda-strings crate
-4. 重构 esp-extractor 依赖新 crate
-5. 创建 esp-extractor-cli
-6. 更新文档和示例
-7. 全面测试
+**如未来出现以下情况可重新考虑**：
+- 有人想单独复用 `esp-format-core` 等核心模块
+- 编译时间成为明显瓶颈
+- 需要独立发布子模块到 crates.io
 
 ## 实施优先级
 
-### ✅ 已完成（2025-11-26）
+### ✅ 全部完成（2025-11-27）
 - [x] P0: 文档修正
 - [x] P1: CLI 升级
 - [x] P2.1: 拆分 plugin.rs (1264 行 → 7 个文件)
 - [x] P2.2: 拆分 string_file.rs (1119 行 → 6 个文件)
 - [x] P2.3: 提取字符串路由模块
 - [x] P2.4: 实现 IO 抽象层注入
-
-### 待实施（留给下一个 session）
-- [ ] P3: 规划并实施 workspace 结构
+- [x] P3: Workspace 结构规划 → ❌ 已取消（过度工程化）
 
 ## P2 重构总结
 
-### 📊 重构统计
+### 重构统计
 - **模块拆分**: 2个大文件 → 13个小文件（plugin: 7个，string_file: 6个）
 - **代码行数**: 2383 行 → 分散到 13 个文件（平均 ~183 行/文件）
 - **新增模块**: string_routes（3个文件）
 - **测试通过率**: 54/54 库测试，9/10 集成测试
 
-### ✅ 架构改进
+### 架构改进
 1. **职责分离**: 每个模块负责特定功能
 2. **依赖倒置**: 核心逻辑依赖抽象接口
 3. **易于扩展**: StringRouter 和 IO 层可自定义
 4. **向后兼容**: 旧代码无需修改
 
-### 🎯 技术债务清理
+### 技术债务清理
 - ✅ 消除了 `string_records` 字段的直接依赖（使用路由器）
 - ✅ 消除了 `std::fs` 的直接依赖（使用 IO trait）
 - ✅ 保持了性能优化（memmap 等）

@@ -2,6 +2,71 @@
 
 本文档记录了esp_extractor库的所有重要变更。
 
+## [0.7.0] - 2025-11-27
+
+### 代码架构重构
+
+本版本专注于代码架构优化，将大文件拆分为职责清晰的小模块，提升可维护性。
+
+#### 模块拆分
+
+**plugin.rs 拆分** (1264 行 → 7 个文件)
+```
+src/plugin/
+├── mod.rs           # Plugin 结构体和公共接口 (150 行)
+├── parser.rs        # 加载和解析逻辑 (240 行)
+├── strings.rs       # 字符串提取 (180 行)
+├── translate.rs     # 翻译应用 (380 行)
+├── writer.rs        # 文件写入 (130 行)
+├── stats.rs         # 统计信息 (70 行)
+└── esl.rs           # ESL FormID 重编号 (80 行)
+```
+
+**string_file.rs 拆分** (1119 行 → 6 个文件)
+```
+src/string_file/
+├── mod.rs           # 公共接口和基础类型 (95 行)
+├── file.rs          # StringFile 结构体和方法 (380 行)
+├── set.rs           # StringFileSet 集合操作 (320 行)
+├── bsa.rs           # BSA fallback 逻辑 (70 行)
+├── io.rs            # 文件名解析工具 (54 行)
+└── tests.rs         # 测试模块 (271 行)
+```
+
+#### 新增模块
+
+**字符串路由模块** (`src/string_routes/`)
+- `StringRouter` trait: 定义字符串路由接口
+- `DefaultStringRouter`: 基于 `string_records.json` 的默认实现
+- 支持自定义路由实现，便于扩展
+
+```rust
+pub trait StringRouter: Send + Sync + Debug {
+    fn get_string_subrecord_types(&self, record_type: &str) -> Option<&[String]>;
+    fn supports_strings(&self, record_type: &str, subrecord_type: &str) -> bool;
+}
+```
+
+#### IO 抽象层增强
+
+新增依赖注入方法，支持自定义 IO 实现：
+- `Plugin::load_with_reader()`: 使用自定义 reader 加载插件
+- `StringFileSet::load_from_directory_with_reader()`: 使用自定义 reader 加载字符串文件
+- 原有方法保持向后兼容
+
+#### 测试验证
+
+- 所有 54 个库测试通过
+- Clippy 检查通过
+- 向后兼容：公共 API 保持不变
+
+#### 重构效果
+
+- 代码行数：2383 行 → 分散到 13 个文件（平均 ~183 行/文件）
+- 职责清晰：每个模块负责特定功能
+- 易于维护：相关代码集中在一起
+- 易于扩展：StringRouter 和 IO 层可自定义
+
 ## [0.6.0] - 2025-11-18
 
 ### BSA Fallback 与字段优化
