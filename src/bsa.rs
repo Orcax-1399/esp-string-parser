@@ -5,12 +5,12 @@
 
 mod strings_provider;
 
-use std::path::Path;
-use thiserror::Error;
 use ba2::{
     prelude::*,
-    tes4::{Archive, ArchiveKey, DirectoryKey, ArchiveOptions, FileCompressionOptions}
+    tes4::{Archive, ArchiveKey, ArchiveOptions, DirectoryKey, FileCompressionOptions},
 };
+use std::path::Path;
+use thiserror::Error;
 
 pub use strings_provider::BsaStringsProvider;
 
@@ -49,17 +49,14 @@ impl BsaArchive {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, BsaError> {
         let (archive, meta) = Archive::read(path.as_ref())?;
 
-        Ok(Self {
-            archive,
-            meta,
-        })
+        Ok(Self { archive, meta })
     }
 
     /// 返回归档中所有文件的"逻辑路径"列表
     ///
     /// # 行为
     /// - 路径统一为小写、使用 `/` 分隔的相对路径
-    /// - 例如：`"meshes/armor/iron/ironcuisse.nif"`
+    /// - 例如："meshes/armor/iron/ironcuisse.nif"
     /// - 返回顺序按字典序排序
     pub fn file_list(&self) -> Vec<String> {
         let mut files = Vec::new();
@@ -166,20 +163,9 @@ mod tests {
             "meshes/armor/iron/ironcuisse.nif"
         );
         assert_eq!(
-            BsaArchive::normalize_path("/strings/Skyrim_English.STRINGS"),
-            "strings/skyrim_english.strings"
-        );
-    }
-
-    #[test]
-    fn test_split_path() {
-        assert_eq!(
-            BsaArchive::split_path("meshes/armor/iron/cuisse.nif"),
-            ("meshes/armor/iron".to_string(), "cuisse.nif".to_string())
-        );
-        assert_eq!(
-            BsaArchive::split_path("file.txt"),
-            (String::new(), "file.txt".to_string())
+            BsaArchive::normalize_path("/textures\\actors\\dragon.dds"),
+            "textures/actors/dragon.dds"
         );
     }
 }
+

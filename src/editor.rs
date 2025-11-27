@@ -28,5 +28,6 @@ pub mod delta;
 pub mod plugin_editor;
 
 // === 导出公共接口 ===
-pub use delta::{TranslationDelta, RecordChange, RecordId};
+pub use delta::{RecordChange, RecordId, TranslationDelta};
 pub use plugin_editor::PluginEditor;
+

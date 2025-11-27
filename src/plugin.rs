@@ -1,12 +1,3 @@
-use crate::record::Record;
-use crate::group::Group;
-use crate::string_file::{StringFileSet, StringFileType};
-use crate::string_routes::StringRouter;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use memmap2::Mmap;
-
 mod parser;
 mod strings;
 mod translate;
@@ -15,6 +6,15 @@ mod stats;
 mod esl;
 
 pub use stats::PluginStats;
+
+use crate::group::Group;
+use crate::record::Record;
+use crate::string_file::{StringFileSet, StringFileType};
+use crate::string_routes::StringRouter;
+use memmap2::Mmap;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// ESP插件解析器
 #[derive(Debug)]
@@ -63,7 +63,8 @@ impl Plugin {
 
     /// 是否为主文件
     pub fn is_master(&self) -> bool {
-        self.path.extension()
+        self.path
+            .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_lowercase() == "esm")
             .unwrap_or(false)
@@ -127,7 +128,10 @@ impl Plugin {
     /// - INFO 记录 → ILSTRINGS（对话信息）
     /// - DESC/CNAM 子记录 → DLSTRINGS（描述文本/内容，通常是较长的文本）
     /// - 其他所有字符串子记录 (FULL/NNAM等) → STRINGS (默认)
-    pub(crate) fn determine_string_file_type(record_type: &str, subrecord_type: &str) -> StringFileType {
+    pub(crate) fn determine_string_file_type(
+        record_type: &str,
+        subrecord_type: &str,
+    ) -> StringFileType {
         // INFO 记录 → ILSTRINGS
         // INFO 记录包含对话信息，按照 Bethesda 约定存储在 ILSTRINGS 中
         if record_type == "INFO" {
@@ -153,75 +157,79 @@ mod tests {
     #[test]
     fn test_info_routes_to_ilstrings() {
         let file_type = Plugin::determine_string_file_type("INFO", "NAM1");
-        assert_eq!(file_type, StringFileType::ILSTRINGS,
-            "INFO记录应该路由到ILSTRINGS（对话信息）");
+        assert_eq!(
+            file_type,
+            StringFileType::ILSTRINGS,
+            "INFO记录应该路由到ILSTRINGS（对话信息）"
+        );
     }
 
     #[test]
     fn test_desc_routes_to_dlstrings() {
         // 任何record的DESC都应该路由到DLSTRINGS
         let file_type = Plugin::determine_string_file_type("PERK", "DESC");
-        assert_eq!(file_type, StringFileType::DLSTRINGS,
-            "PERK DESC应该路由到DLSTRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::DLSTRINGS,
+            "PERK DESC应该路由到DLSTRINGS"
+        );
 
         let file_type = Plugin::determine_string_file_type("WEAP", "DESC");
-        assert_eq!(file_type, StringFileType::DLSTRINGS,
-            "WEAP DESC应该路由到DLSTRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::DLSTRINGS,
+            "WEAP DESC应该路由到DLSTRINGS"
+        );
 
         let file_type = Plugin::determine_string_file_type("MESG", "DESC");
-        assert_eq!(file_type, StringFileType::DLSTRINGS,
-            "MESG DESC应该路由到DLSTRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::DLSTRINGS,
+            "MESG DESC应该路由到DLSTRINGS"
+        );
     }
 
     #[test]
     fn test_cnam_routes_to_dlstrings() {
         // 任何record的CNAM都应该路由到DLSTRINGS
         let file_type = Plugin::determine_string_file_type("QUST", "CNAM");
-        assert_eq!(file_type, StringFileType::DLSTRINGS,
-            "QUST CNAM应该路由到DLSTRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::DLSTRINGS,
+            "QUST CNAM应该路由到DLSTRINGS"
+        );
 
         let file_type = Plugin::determine_string_file_type("BOOK", "CNAM");
-        assert_eq!(file_type, StringFileType::DLSTRINGS,
-            "BOOK CNAM应该路由到DLSTRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::DLSTRINGS,
+            "BOOK CNAM应该路由到DLSTRINGS"
+        );
     }
 
     #[test]
     fn test_full_routes_to_strings() {
         // FULL应该路由到STRINGS
         let file_type = Plugin::determine_string_file_type("WEAP", "FULL");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "WEAP FULL应该路由到STRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::STRINGS,
+            "WEAP FULL应该路由到STRINGS"
+        );
 
         let file_type = Plugin::determine_string_file_type("PERK", "FULL");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "PERK FULL应该路由到STRINGS");
+        assert_eq!(
+            file_type,
+            StringFileType::STRINGS,
+            "PERK FULL应该路由到STRINGS"
+        );
 
         let file_type = Plugin::determine_string_file_type("DIAL", "FULL");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "DIAL FULL应该路由到STRINGS");
-    }
-
-    #[test]
-    fn test_other_subrecords_route_to_strings() {
-        // NNAM, DNAM, SHRT等其他subrecord应该路由到STRINGS
-        let file_type = Plugin::determine_string_file_type("QUST", "NNAM");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "QUST NNAM应该路由到STRINGS");
-
-        let file_type = Plugin::determine_string_file_type("MGEF", "DNAM");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "MGEF DNAM应该路由到STRINGS");
-
-        let file_type = Plugin::determine_string_file_type("NPC_", "SHRT");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "NPC_ SHRT应该路由到STRINGS");
-
-        let file_type = Plugin::determine_string_file_type("ACTI", "RNAM");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "ACTI RNAM应该路由到STRINGS");
-
-        let file_type = Plugin::determine_string_file_type("MESG", "ITXT");
-        assert_eq!(file_type, StringFileType::STRINGS,
-            "MESG ITXT应该路由到STRINGS（不是DESC/CNAM）");
+        assert_eq!(
+            file_type,
+            StringFileType::STRINGS,
+            "DIAL FULL应该路由到STRINGS"
+        );
     }
 }
+

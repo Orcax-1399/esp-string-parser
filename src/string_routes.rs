@@ -5,5 +5,6 @@
 mod data;
 mod router;
 
-pub use router::{StringRouter, DefaultStringRouter};
+pub use router::{DefaultStringRouter, StringRouter};
 pub(crate) use data::load_string_records;
+
