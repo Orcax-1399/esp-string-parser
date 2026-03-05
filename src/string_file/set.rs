@@ -152,6 +152,71 @@ impl StringFileSet {
         Ok(set)
     }
 
+    /// 自动加载指定插件的 STRING 文件集合（文件系统 + BSA fallback）
+    ///
+    /// 搜索路径（按顺序）：
+    /// - 插件同目录
+    /// - `Strings/`
+    /// - `strings/`
+    ///
+    /// 若文件系统中未找到，则尝试 `load_from_bsa` 作为 fallback。
+    pub(crate) fn load_auto_for_plugin(
+        plugin_path: &Path,
+        plugin_name: &str,
+        language: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let plugin_dir = plugin_path.parent().ok_or("无法获取插件目录")?;
+
+        let search_dirs = [
+            plugin_dir.to_path_buf(),
+            plugin_dir.join("Strings"),
+            plugin_dir.join("strings"),
+        ];
+
+        #[cfg(debug_assertions)]
+        let mut search_attempts: Vec<String> = Vec::new();
+
+        for dir in search_dirs {
+            if !dir.exists() {
+                #[cfg(debug_assertions)]
+                search_attempts.push(format!("{:?} (目录不存在)", dir));
+                continue;
+            }
+
+            match StringFileSet::load_from_directory(&dir, plugin_name, language) {
+                Ok(set) if !set.files.is_empty() => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "✅ 已加载 STRING 文件: {} 个文件类型（从 {:?}）",
+                        set.files.len(),
+                        dir
+                    );
+                    return Ok(set);
+                }
+                Ok(_) => {
+                    #[cfg(debug_assertions)]
+                    search_attempts.push(format!("{:?} (目录存在但无匹配文件)", dir));
+                }
+                Err(_e) => {
+                    #[cfg(debug_assertions)]
+                    search_attempts.push(format!("{:?} (加载失败: {})", dir, _e));
+                }
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            eprintln!("⚠️ 文件系统中未找到 STRING 文件，已尝试以下路径:");
+            for attempt in &search_attempts {
+                eprintln!("  - {}", attempt);
+            }
+            eprintln!("🔍 尝试从 BSA 归档中加载...");
+        }
+
+        StringFileSet::load_from_bsa(plugin_path, plugin_name, language)
+            .map_err(|_e| "未找到任何 STRING 文件（文件系统和 BSA 都失败）".into())
+    }
+
     /// 获取指定类型的字符串文件
     pub fn get_file(&self, file_type: &StringFileType) -> Option<&StringFile> {
         self.files.get(file_type)

@@ -145,77 +145,12 @@ impl LocalizedPluginContext {
         _plugin: &Plugin,
         language: &str,
     ) -> Result<StringFileSet, Box<dyn std::error::Error>> {
-        let plugin_dir = path.parent().ok_or("无法获取插件目录")?;
         let plugin_name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .ok_or("无法获取插件名称")?;
 
-        // 尝试多个可能的 STRING 文件位置
-        let search_dirs = vec![
-            plugin_dir.to_path_buf(),               // 同目录
-            plugin_dir.join("Strings"),             // Strings子目录（常见于开发环境）
-            plugin_dir.join("strings"),             // strings子目录（小写）
-        ];
-
-        #[cfg(debug_assertions)]
-        let mut search_attempts = Vec::new();  // 收集搜索记录
-
-        for dir in search_dirs {
-            if !dir.exists() {
-                #[cfg(debug_assertions)]
-                search_attempts.push(format!("{:?} (目录不存在)", dir));
-                continue;
-            }
-
-            match StringFileSet::load_from_directory(&dir, plugin_name, language) {
-                Ok(set) if !set.files.is_empty() => {
-                    #[cfg(debug_assertions)]
-                    println!(
-                        "✅ 已加载 STRING 文件: {} 个文件类型（从 {:?}）",
-                        set.files.len(),
-                        dir
-                    );
-                    return Ok(set);
-                }
-                Ok(_) => {
-                    // 找到目录但没有 STRING 文件，继续搜索
-                    #[cfg(debug_assertions)]
-                    search_attempts.push(format!("{:?} (目录存在但无匹配文件)", dir));
-                }
-                Err(_e) => {
-                    #[cfg(debug_assertions)]
-                    search_attempts.push(format!("{:?} (加载失败: {})", dir, _e));
-                }
-            }
-        }
-
-        // 文件系统查找失败，尝试 BSA fallback
-        #[cfg(debug_assertions)]
-        {
-            eprintln!("⚠️ 文件系统中未找到 STRING 文件，已尝试以下路径:");
-            for attempt in &search_attempts {
-                eprintln!("  - {}", attempt);
-            }
-            eprintln!("🔍 尝试从 BSA 归档中加载...");
-        }
-
-        match StringFileSet::load_from_bsa(path, plugin_name, language) {
-            Ok(set) => {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "✅ 从 BSA 中成功加载 STRING 文件: {} 个文件类型",
-                    set.files.len()
-                );
-                Ok(set)
-            }
-            Err(_e) => {
-                #[cfg(debug_assertions)]
-                eprintln!("❌ BSA fallback 也失败: {}", _e);
-
-                Err("未找到任何 STRING 文件（文件系统和 BSA 都失败）".into())
-            }
-        }
+        StringFileSet::load_auto_for_plugin(path, plugin_name, language)
     }
 
     /// 获取插件的不可变引用

@@ -2,6 +2,25 @@
 
 本文档记录了esp_extractor库的所有重要变更。
 
+## [0.8.0] - 2026-03-05
+
+### 性能
+
+- 新增“流式字符串提取”快路径：mmap 后按字节扫描 GRUP/Record/Subrecord，仅解析 EDID + 白名单字符串子记录；压缩记录仅在命中白名单 record 时才解压
+- 默认提取逻辑切换为快路径（CLI 与 `extract_strings_from_file`）
+- routes 白名单改为一次构建并缓存（避免重复 JSON 反序列化）
+
+### 功能
+
+- 快路径支持本地化插件：保持 `determine_string_file_type` 路由规则不变；STRING 文件加载支持文件系统查找 + BSA fallback
+- 新增显式 API：`extract_strings_from_file_fast(path, language)` 便于外部调用/回归对比
+- 新增回退开关：`ESP_EXTRACTOR_USE_LEGACY_EXTRACT=1` 强制使用旧提取路径
+
+### 测试与工具
+
+- 新增快路径一致性回归测试（非本地化 + 本地化 fixture）
+- 更新 `examples/performance_comparison.rs`：新增快路径第三组对比
+
 ## [0.7.0] - 2025-11-27
 
 ### 代码架构重构

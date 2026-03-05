@@ -69,6 +69,9 @@ pub mod bsa;
 // 字符串路由模块（v0.6.0 新增 - P2.3）
 pub mod string_routes;
 
+// 流式提取快路径（v0.7.0 新增）
+pub mod fast_extract;
+
 // 调试模块（仅在debug模式下可用）
 #[cfg(debug_assertions)]
 pub mod debug;
@@ -144,8 +147,23 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// ```
 #[allow(deprecated)]
 pub fn extract_strings_from_file(file_path: std::path::PathBuf) -> std::result::Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
-    let plugin = Plugin::new(file_path, None)?; // 使用默认语言
-    Ok(plugin.extract_strings())
+    let language = "english";
+
+    if std::env::var("ESP_EXTRACTOR_USE_LEGACY_EXTRACT").ok().as_deref() == Some("1") {
+        let loaded = LoadedPlugin::load_auto(file_path, Some(language))?;
+        Ok(loaded.extract_strings())
+    } else {
+        Ok(fast_extract::extract_strings_fast(file_path.as_ref(), language)?)
+    }
+}
+
+/// 显式使用快路径提取文件中的字符串
+pub fn extract_strings_from_file_fast(
+    file_path: std::path::PathBuf,
+    language: Option<&str>,
+) -> std::result::Result<Vec<ExtractedString>, Box<dyn std::error::Error>> {
+    let language = language.unwrap_or("english");
+    Ok(fast_extract::extract_strings_fast(file_path.as_ref(), language)?)
 }
 
 /// 快速应用翻译到文件

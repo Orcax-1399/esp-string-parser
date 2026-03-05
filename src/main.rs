@@ -16,7 +16,7 @@ use esp_extractor::EspDebugger;
 #[derive(Parser)]
 #[command(name = "esp_extractor")]
 #[command(about = "从ESP/ESM/ESL文件中提取可翻译字符串，或解析Bethesda字符串文件")]
-#[command(version = "0.6.0")]
+#[command(version)]
 struct Cli {
     /// 输入文件路径（ESP/ESM/ESL或字符串文件）
     #[arg(short, long)]
@@ -336,16 +336,27 @@ fn handle_string_extraction(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
         println!("正在解析插件: {:?}", cli.input);
     }
 
-    // 使用新的 LoadedPlugin API，支持 BSA fallback
-    let loaded = LoadedPlugin::load_auto(cli.input.clone(), Some("english"))
-        .map_err(|e| format!("解析插件失败: {}", e))?;
-
     if cli.stats {
+        // --stats 仍使用旧路径以保持统计能力不变
+        let loaded = LoadedPlugin::load_auto(cli.input.clone(), Some("english"))
+            .map_err(|e| format!("解析插件失败: {}", e))?;
         println!("{}", loaded.plugin().get_stats());
         return Ok(());
     }
 
-    let strings = loaded.extract_strings();
+    let use_legacy = std::env::var("ESP_EXTRACTOR_USE_LEGACY_EXTRACT").ok().as_deref() == Some("1");
+
+    let (strings, loaded_for_summary) = if use_legacy {
+        let loaded = LoadedPlugin::load_auto(cli.input.clone(), Some("english"))
+            .map_err(|e| format!("解析插件失败: {}", e))?;
+        let strings = loaded.extract_strings();
+        (strings, Some(loaded))
+    } else {
+        let strings = esp_extractor::fast_extract::extract_strings_fast(cli.input.as_ref(), "english")
+            .map_err(|e| format!("快路径提取失败: {}", e))?;
+        (strings, None)
+    };
+
     let output_path = cli.output.as_ref()
         .map(|p| p.clone())
         .unwrap_or_else(|| cli.input.with_extension("json"));
@@ -353,7 +364,7 @@ fn handle_string_extraction(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
     save_strings_to_file(&strings, &output_path)?;
 
     if !cli.quiet {
-        print_extraction_summary(loaded.plugin(), &strings, &output_path);
+        print_extraction_summary(loaded_for_summary.as_ref().map(|l| l.plugin()), &strings, &output_path);
     }
 
     Ok(())
@@ -369,14 +380,16 @@ fn save_strings_to_file(strings: &[ExtractedString], output_path: &PathBuf) -> R
 }
 
 /// 打印提取摘要信息
-fn print_extraction_summary(_plugin: &Plugin, strings: &[ExtractedString], output_path: &PathBuf) {
+fn print_extraction_summary(plugin: Option<&Plugin>, strings: &[ExtractedString], output_path: &PathBuf) {
     #[cfg(debug_assertions)]
-    let stats = _plugin.get_stats();
+    let stats = plugin.map(|p| p.get_stats());
     
     #[cfg(debug_assertions)]
     {
-        println!("扫描到 {} 个组（包含子组）", stats.group_count);
-        println!("扫描到 {} 个记录", stats.record_count);
+        if let Some(stats) = stats {
+            println!("扫描到 {} 个组（包含子组）", stats.group_count);
+            println!("扫描到 {} 个记录", stats.record_count);
+        }
     }
     
     println!("提取到 {} 个有效字符串", strings.len());
