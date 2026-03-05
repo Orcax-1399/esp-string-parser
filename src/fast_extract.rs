@@ -278,16 +278,22 @@ fn scan_group_for_strings(group_data: &[u8], ctx: &ScanCtx) -> Result<Vec<Extrac
 
             if let Some(allowed_subs) = ctx.routes.get(&record.record_type_u32) {
                 // 仅在命中白名单时才考虑解压/扫描
-                let record_data = if (record.flags & RecordFlags::COMPRESSED.bits()) != 0 {
+                let decompressed;
+                let data_to_scan: &[u8] = if (record.flags & RecordFlags::COMPRESSED.bits()) != 0 {
                     match decompress_record_data(record.data) {
-                        Ok(decompressed) => Some(decompressed),
-                        Err(_) => None, // 与旧路径一致：解压失败则跳过子记录解析
+                        Ok(data) => {
+                            decompressed = data;
+                            &decompressed
+                        }
+                        Err(_) => {
+                            // 与旧路径一致：解压失败时跳过该记录的子记录扫描
+                            offset = record.next_offset;
+                            continue;
+                        }
                     }
                 } else {
-                    None
+                    record.data
                 };
-
-                let data_to_scan: &[u8] = record_data.as_deref().unwrap_or(record.data);
                 out.extend(scan_record_for_strings(
                     record.record_type_bytes,
                     record.flags,
@@ -617,5 +623,43 @@ mod tests {
 
         let decompressed = decompress_record_data(&record_data).expect("应能解压成功");
         assert_eq!(&decompressed, payload);
+    }
+
+    #[test]
+    fn test_scan_group_skips_invalid_compressed_record() {
+        let record_data = [0x0A, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03];
+        let mut group = Vec::new();
+
+        // GRUP header (24 bytes)
+        group.extend_from_slice(b"GRUP");
+        group.extend_from_slice(&0u32.to_le_bytes()); // size placeholder
+        group.extend_from_slice(&[0u8; 16]);
+
+        // CELL record header (24 bytes)
+        group.extend_from_slice(b"CELL");
+        group.extend_from_slice(&(record_data.len() as u32).to_le_bytes());
+        group.extend_from_slice(&RecordFlags::COMPRESSED.bits().to_le_bytes());
+        group.extend_from_slice(&0x0100_0000u32.to_le_bytes()); // form id
+        group.extend_from_slice(&0u16.to_le_bytes()); // timestamp
+        group.extend_from_slice(&0u16.to_le_bytes()); // version control
+        group.extend_from_slice(&0u16.to_le_bytes()); // internal version
+        group.extend_from_slice(&0u16.to_le_bytes()); // unknown
+        group.extend_from_slice(&record_data);
+
+        // fill GRUP size
+        let total_size = group.len() as u32;
+        group[4..8].copy_from_slice(&total_size.to_le_bytes());
+
+        let ctx = ScanCtx {
+            routes: routes_u32(),
+            plugin_filename: "test.esp".to_string(),
+            masters: Vec::new(),
+            is_localized: false,
+            string_files: None,
+        };
+
+        let out = scan_group_for_strings(&group, &ctx)
+            .expect("解压失败的压缩记录应被跳过，而不是导致整个扫描失败");
+        assert!(out.is_empty());
     }
 }
