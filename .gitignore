@@ -3,3 +3,14 @@ TestFile
 .claude/
 .spec-workflow
 .serana/
+
+# Local tooling / caches (machine-specific)
+.agent/
+.cargo/
+.rustup/
+tmp/
+bak.md
+AGENTS.md
+CLAUDE.md
+.github/
+openspec/
