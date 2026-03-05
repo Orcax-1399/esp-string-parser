@@ -10,11 +10,10 @@ use std::collections::HashMap;
 ///
 /// # 示例
 /// ```no_run
-/// use esp_extractor::string_routes::load_string_records;
+/// use esp_extractor::string_routes::{DefaultStringRouter, StringRouter};
 ///
-/// let records = load_string_records().unwrap();
-/// let weap_types = records.get("WEAP");
-/// assert!(weap_types.is_some());
+/// let router = DefaultStringRouter::from_embedded_data().unwrap();
+/// assert!(router.supports_strings("WEAP", "FULL"));
 /// ```
 pub(crate) fn load_string_records() -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
     let json_data = include_str!("../../data/string_records.json");
